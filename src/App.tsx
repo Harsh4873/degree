@@ -10,10 +10,12 @@ import {
   GripVertical,
   Info,
   Library,
+  Moon,
   Pencil,
   Plus,
   RefreshCw,
   Search,
+  Sun,
   Trash2,
   X,
 } from 'lucide-react';
@@ -21,7 +23,10 @@ import { catalogCourseById, catalogCourses, cloneCourse, createSeedPlanner, offi
 import { evaluatePlan } from './degreeRules';
 import type { BreadthArea, CourseKind, CourseTemplate, PlannedCourse, Planner, Term } from './types';
 
-const STORAGE_KEY = 'degree-canvas-tamu-mscs-v1';
+const STORAGE_KEY = 'degree-canvas-tamu-mscs-v2';
+const THEME_KEY = 'degree-canvas-theme';
+
+type Theme = 'light' | 'dark';
 const dragType = 'application/x-degree-canvas-course';
 
 type DragPayload =
@@ -84,6 +89,23 @@ function loadPlanner(): Planner {
   }
 
   return createSeedPlanner();
+}
+
+function loadTheme(): Theme {
+  if (typeof window === 'undefined') {
+    return 'light';
+  }
+
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    if (stored === 'light' || stored === 'dark') {
+      return stored;
+    }
+
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
 }
 
 function statusCopy(status: 'complete' | 'pending' | 'warning') {
@@ -307,6 +329,7 @@ export default function App() {
   const [quickTermId, setQuickTermId] = useState(planner.terms[0]?.id ?? '');
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customDraft, setCustomDraft] = useState<CustomDraft>(emptyCustomDraft);
+  const [theme, setTheme] = useState<Theme>(loadTheme);
 
   const evaluation = useMemo(() => evaluatePlan(planner), [planner]);
   const visibleCatalog = useMemo(() => {
@@ -330,6 +353,14 @@ export default function App() {
     } catch {
     }
   }, [planner]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(THEME_KEY, theme);
+    } catch {
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (!planner.terms.some((term) => term.id === quickTermId)) {
@@ -496,6 +527,14 @@ export default function App() {
         <div className="site-header__actions">
           <span className="saved-state"><span aria-hidden="true" />Saved on this device</span>
           <a className="header-link" href="#sources"><BookOpen size={15} />Sources</a>
+          <button
+            className="header-reset"
+            type="button"
+            onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+          >
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            {theme === 'dark' ? 'Light' : 'Dark'}
+          </button>
           <button className="header-reset" type="button" onClick={resetPlanner}><RefreshCw size={15} />Reset</button>
         </div>
       </header>
@@ -517,9 +556,9 @@ export default function App() {
         </section>
 
         <section className="metric-strip" aria-label="Plan summary">
-          <div className="metric-card"><span>Planned credits</span><strong>{evaluation.totalCredits}</strong><small>30 minimum</small></div>
+          <div className="metric-card"><span>Degree-plan credits</span><strong>{evaluation.countableCredits}</strong><small>of 30 minimum · {evaluation.totalCredits} planned</small></div>
           <div className="metric-card"><span>Graded CSCE</span><strong>{evaluation.gradedCsceCredits}</strong><small>18 minimum</small></div>
-          <div className={`metric-card ${evaluation.researchCredits > 6 ? 'metric-card--attention' : ''}`}><span>CSCE 691 reserve</span><strong>{evaluation.researchCredits}</strong><small>3–6 allowed total</small></div>
+          <div className={`metric-card ${evaluation.researchCredits < 3 ? 'metric-card--attention' : ''}`}><span>CSCE 691 research</span><strong>{evaluation.researchCredits}</strong><small>{evaluation.researchCountable} count toward the 30</small></div>
           <div className="metric-card"><span>Terms on board</span><strong>{planner.terms.length}</strong><small>fully editable</small></div>
         </section>
 
@@ -532,7 +571,7 @@ export default function App() {
               </div>
               <span className="panel-heading__count">{evaluation.requirements.filter((requirement) => requirement.status === 'complete').length}/{evaluation.requirements.length}</span>
             </div>
-            <p className="panel-intro">Rules below come from the MSCS degree page. Course placement and prior-completion switches remain yours to edit.</p>
+            <p className="panel-intro">Rules below come from the MSCS degree page; hours beyond a category cap stay on the board without counting toward the 30. Course placement and prior-completion switches remain yours to edit.</p>
             <div className="requirement-list">
               {evaluation.requirements.map((requirement) => {
                 const area = breadthFromRequirementId(requirement.id);

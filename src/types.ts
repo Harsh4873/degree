@@ -60,8 +60,10 @@ export type PlanAlert = {
 
 export type PlanEvaluation = {
   totalCredits: number;
+  countableCredits: number;
   gradedCsceCredits: number;
   researchCredits: number;
+  researchCountable: number;
   directedStudyCredits: number;
   requirements: RequirementCheck[];
   alerts: PlanAlert[];

@@ -4,15 +4,43 @@ import { evaluatePlan } from './degreeRules';
 import type { Planner } from './types';
 
 describe('evaluatePlan', () => {
-  it('keeps the requested research reserve visible while flagging its MSCS policy conflict', () => {
+  it('counts capped research toward the 30-hour plan without limiting enrollment', () => {
     const evaluation = evaluatePlan(createSeedPlanner());
 
-    expect(evaluation.totalCredits).toBe(43);
-    expect(evaluation.gradedCsceCredits).toBe(18);
+    expect(evaluation.totalCredits).toBe(49);
+    expect(evaluation.gradedCsceCredits).toBe(24);
     expect(evaluation.researchCredits).toBe(24);
+    expect(evaluation.researchCountable).toBe(6);
+    expect(evaluation.countableCredits).toBe(31);
+    expect(evaluation.requirements.find((rule) => rule.id === 'total-hours')?.status).toBe('complete');
+    expect(evaluation.requirements.find((rule) => rule.id === 'research')?.status).toBe('complete');
     expect(evaluation.requirements.find((rule) => rule.id === 'breadth-systems')?.status).toBe('complete');
-    expect(evaluation.requirements.find((rule) => rule.id === 'research')?.status).toBe('warning');
-    expect(evaluation.alerts.some((alert) => alert.id === 'research-cap')).toBe(true);
+    expect(evaluation.requirements.find((rule) => rule.id === 'breadth-theory')?.status).toBe('complete');
+    expect(evaluation.requirements.find((rule) => rule.id === 'breadth-software')?.status).toBe('complete');
+    expect(evaluation.alerts.some((alert) => alert.id === 'research-countable')).toBe(true);
+    expect(evaluation.alerts.some((alert) => alert.level === 'warning')).toBe(false);
+  });
+
+  it('caps combined CSCE 685 and 691 counted credits at seven', () => {
+    const directedStudies = catalogCourseById('csce-685');
+    const research = catalogCourseById('csce-691');
+
+    if (!directedStudies || !research) {
+      throw new Error('Expected catalog courses were not found');
+    }
+
+    const planner: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [
+        { id: 'one', name: 'Term one', courses: [cloneCourse(directedStudies, 3), cloneCourse(research, 6)] },
+      ],
+    };
+
+    const evaluation = evaluatePlan(planner);
+
+    expect(evaluation.countableCredits).toBe(7);
+    expect(evaluation.requirements.find((rule) => rule.id === 'research-directed')?.value).toBe('7 / 7 maximum');
+    expect(evaluation.alerts.some((alert) => alert.level === 'warning')).toBe(false);
   });
 
   it('accepts an earlier catalog prerequisite placed in a prior term', () => {

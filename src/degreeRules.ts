@@ -71,14 +71,31 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
   );
   const undergradCsce = allCourses.filter(({ course }) => course.kind === 'csce-400');
   const undergradCsceCredits = sum(undergradCsce.map(({ course }) => course.credits));
+  const otherCredits = sum(
+    allCourses.filter(({ course }) => course.kind === 'other').map(({ course }) => course.credits),
+  );
+
+  const seminarCountable = Math.min(seminarCredits, 1);
+  const researchCountable = Math.min(researchCredits, 6);
+  const directedCountable = Math.min(directedStudyCredits, 3, Math.max(0, 7 - researchCountable));
+  const nonCsceCountable = Math.min(nonCsceCredits, 6);
+  const undergradCountable = Math.min(undergradCsceCredits, 3);
+  const countableCredits =
+    gradedCsceCredits +
+    seminarCountable +
+    researchCountable +
+    directedCountable +
+    nonCsceCountable +
+    undergradCountable +
+    otherCredits;
 
   const requirements: RequirementCheck[] = [
     {
       id: 'total-hours',
-      label: 'Total degree-plan credits',
-      value: `${totalCredits} / 30 minimum`,
-      status: atLeastStatus(totalCredits, 30),
-      explanation: 'The MSCS degree plan requires at least 30 total credit hours.',
+      label: 'Degree-plan credits',
+      value: `${countableCredits} / 30 minimum`,
+      status: atLeastStatus(countableCredits, 30),
+      explanation: 'At least 30 credit hours must count toward the degree plan. Research, directed-study, non-CSCE, and 400-level hours count only up to their caps; extra enrollment stays on the board without counting.',
     },
     {
       id: 'graded-csce',
@@ -112,23 +129,23 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     {
       id: 'research',
       label: 'CSCE 691 research',
-      value: `${researchCredits} / 3–6 allowed`,
-      status: rangeStatus(researchCredits, 3, 6),
-      explanation: 'The MSCS degree plan requires 3–6 CSCE 691 credits in total.',
+      value: `${researchCredits} planned · ${researchCountable} count`,
+      status: atLeastStatus(researchCredits, 3),
+      explanation: 'The degree plan counts 3–6 CSCE 691 credits toward the 30. Enrolling beyond the countable hours is allowed (advisor-confirmed reading of the published requirement).',
     },
     {
       id: 'research-directed',
-      label: 'CSCE 685 + 691 combined',
-      value: `${directedStudyCredits + researchCredits} / 7 maximum`,
-      status: atMostStatus(directedStudyCredits + researchCredits, 7),
-      explanation: 'Directed Studies is limited to 3 credits, and CSCE 685 + CSCE 691 cannot exceed 7 credits.',
+      label: 'CSCE 685 + 691 counted',
+      value: `${directedCountable + researchCountable} / 7 maximum`,
+      status: atMostStatus(directedCountable + researchCountable, 7),
+      explanation: 'At most 7 combined CSCE 685 + 691 credits count toward the degree plan (685 up to 3, 691 up to 6); the planner caps the counted hours automatically.',
     },
     {
       id: 'non-csce',
       label: 'Non-CSCE graduate credits',
-      value: `${nonCsceCredits} / 6 maximum`,
+      value: `${nonCsceCredits} planned · ${nonCsceCountable} count`,
       status: atMostStatus(nonCsceCredits, 6),
-      explanation: 'At most 6 non-CSCE graded graduate credits may be used.',
+      explanation: 'At most 6 non-CSCE graded graduate credits count toward the degree plan.',
     },
     {
       id: 'csce-400',
@@ -150,30 +167,21 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     });
   }
 
-  if (researchCredits > 6) {
+  if (researchCredits > researchCountable) {
     alerts.push({
-      id: 'research-cap',
-      title: 'Research reserve exceeds the MSCS degree-plan cap',
-      detail: `The board contains ${researchCredits} CSCE 691 credits. The published MSCS requirement allows 3–6 total, even though the catalog itself lists a wider course-credit range.`,
-      level: 'warning',
+      id: 'research-countable',
+      title: `${researchCountable} of ${researchCredits} research credits count toward the 30`,
+      detail: 'The MSCS degree plan counts 3–6 CSCE 691 credits. Additional research enrollment is allowed and stays on the board; the extra hours simply do not count toward the degree-plan minimum (advisor-confirmed).',
+      level: 'info',
     });
   }
 
-  if (directedStudyCredits > 3) {
+  if (directedStudyCredits > directedCountable) {
     alerts.push({
-      id: 'directed-study-cap',
-      title: 'Directed Studies exceeds the MSCS cap',
-      detail: `The board contains ${directedStudyCredits} CSCE 685 credits; the degree plan allows up to 3.`,
-      level: 'warning',
-    });
-  }
-
-  if (researchCredits + directedStudyCredits > 7) {
-    alerts.push({
-      id: 'research-directed-cap',
-      title: 'Research + Directed Studies exceeds the combined cap',
-      detail: `CSCE 685 + 691 totals ${researchCredits + directedStudyCredits} credits; the MSCS degree plan caps the combination at 7.`,
-      level: 'warning',
+      id: 'directed-countable',
+      title: `${directedCountable} of ${directedStudyCredits} directed-study credits count toward the 30`,
+      detail: 'The degree plan counts up to 3 CSCE 685 credits, and CSCE 685 + 691 count at most 7 combined; extra enrollment does not count toward the minimum.',
+      level: 'info',
     });
   }
 
@@ -213,8 +221,10 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
 
   return {
     totalCredits,
+    countableCredits,
     gradedCsceCredits,
     researchCredits,
+    researchCountable,
     directedStudyCredits,
     requirements,
     alerts,

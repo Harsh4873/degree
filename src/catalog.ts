@@ -386,12 +386,12 @@ export function createSeedPlanner(): Planner {
       {
         id: 'fall-2026',
         name: 'Fall 2026',
-        courses: [course('csce-629'), course('csce-606'), course('csce-691', 3)],
+        courses: [course('csce-671'), course('csce-627'), course('csce-691', 3)],
       },
       {
         id: 'spring-2027',
         name: 'Spring 2027',
-        courses: [course('csce-627'), course('csce-681'), course('csce-691', 3)],
+        courses: [course('csce-625'), course('csce-629'), course('csce-681'), course('csce-691', 3)],
       },
       {
         id: 'summer-2027',
@@ -406,7 +406,7 @@ export function createSeedPlanner(): Planner {
       {
         id: 'spring-2028',
         name: 'Spring 2028',
-        courses: [course('csce-735'), course('csce-691', 3)],
+        courses: [course('csce-735'), course('csce-606'), course('csce-691', 3)],
       },
       {
         id: 'summer-2028',
