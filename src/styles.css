@@ -218,7 +218,6 @@ main {
 }
 
 .hero h1,
-.hero h1 em,
 .hero h2,
 .workspace-header h2,
 .library-header h2,
@@ -230,26 +229,12 @@ main {
 
 .hero h1 {
   max-width: 14ch;
-  margin: 0.8rem 0 1.1rem;
+  margin: 0.8rem 0 0;
   color: #271d18;
   font-size: clamp(3rem, 6vw, 5.7rem);
   font-weight: 460;
   letter-spacing: -0.07em;
   line-height: 0.91;
-}
-
-.hero h1 em {
-  color: #aa5c1d;
-  font-style: italic;
-  font-weight: 500;
-}
-
-.hero__lede {
-  max-width: 59ch;
-  margin: 0;
-  color: #66584c;
-  font-size: 1.02rem;
-  line-height: 1.7;
 }
 
 .hero__note {
@@ -1495,14 +1480,6 @@ main {
 
 :root[data-theme='dark'] .hero h1 {
   color: #f3ead9;
-}
-
-:root[data-theme='dark'] .hero h1 em {
-  color: #e2a34e;
-}
-
-:root[data-theme='dark'] .hero__lede {
-  color: #b3a291;
 }
 
 :root[data-theme='dark'] .hero__note {

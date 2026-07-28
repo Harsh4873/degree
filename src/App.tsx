@@ -543,14 +543,13 @@ export default function App() {
         <section className="hero" aria-labelledby="planner-title">
           <div className="hero__copy">
             <p className="eyebrow">TEXAS A&amp;M UNIVERSITY · MASTER OF SCIENCE IN COMPUTER SCIENCE</p>
-            <h1 id="planner-title">Make the degree plan<br />feel <em>knowable.</em></h1>
-            <p className="hero__lede">A hands-on thesis-degree workspace: place catalog courses, tune each term, and see the official MSCS policy implications immediately.</p>
+            <h1 id="planner-title">MSCS degree planner</h1>
           </div>
           <aside className="hero__note">
             <Info size={18} />
             <div>
-              <strong>Start with assumptions, not surprises.</strong>
-              <p>Systems breadth begins marked complete as requested. It is editable and adds no plan credits.</p>
+              <strong>Systems breadth starts marked complete.</strong>
+              <p>It is an editable assumption and adds no credits; toggle it in the requirements panel.</p>
             </div>
           </aside>
         </section>
@@ -722,7 +721,7 @@ export default function App() {
         <section className="guidance" aria-labelledby="guidance-heading">
           <header className="guidance__header">
             <div>
-              <p className="section-kicker">Explain the checks</p>
+              <p className="section-kicker">Alerts</p>
               <h2 id="guidance-heading">Live planning notes</h2>
             </div>
             <span>{evaluation.alerts.length} active</span>
@@ -740,7 +739,7 @@ export default function App() {
 
         <section className="sources" id="sources" aria-labelledby="sources-heading">
           <div>
-            <p className="section-kicker">Source boundary</p>
+            <p className="section-kicker">Sources</p>
             <h2 id="sources-heading">Official TAMU sources only</h2>
             <p>This planner separates published requirements from editable assumptions. It does not replace degree-plan approval, the advisory committee, or the current Howdy schedule.</p>
           </div>
@@ -750,7 +749,7 @@ export default function App() {
         </section>
       </main>
 
-      <footer className="site-footer">Degree Canvas · local-first planning workspace · TAMU MSCS thesis degree</footer>
+      <footer className="site-footer">Degree Canvas · TAMU MSCS · saved in this browser</footer>
     </div>
   );
 }
