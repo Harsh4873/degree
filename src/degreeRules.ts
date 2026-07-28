@@ -145,7 +145,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
       label: 'Non-CSCE graduate credits',
       value: `${nonCsceCredits} planned · ${nonCsceCountable} count`,
       status: atMostStatus(nonCsceCredits, 6),
-      explanation: 'At most 6 non-CSCE graded graduate credits count toward the degree plan.',
+      explanation: 'Up to 6 hours of graded graduate coursework from other departments (STAT, MATH, ECEN, and similar — see the course bank for verified options) count with advisor approval. Excluded courses such as STAT 624/654, MATH 679, and ECEN 714/749 cannot be used.',
     },
     {
       id: 'csce-400',

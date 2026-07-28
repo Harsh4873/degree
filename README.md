@@ -6,6 +6,7 @@ An editable, local-first degree planning canvas published at `https://harsh.bet/
 
 - An editable six-term starting plan: Fall 2026 through Summer 2028, with two courses in each fall and spring, research-only summers, and CSCE 671 + CSCE 627 in the first term.
 - Drag-and-drop placement from a catalog-backed course bank covering every published Theory, Systems, and Software breadth option, plus custom courses and editable course credits.
+- Verified non-CSCE elective options (STAT 601/616/630, MATH 640, ECEN 649) for the six-hour outside-department slot.
 - Live checks for the MSCS degree-plan minimums, breadth areas, seminar, research, directed-study, non-CSCE graduate course, and 400-level course limits.
 - Catalog prerequisite preparation alerts and a verified Fall 2026 online-course indicator. A missing indicator does **not** mean a course is unavailable.
 - Browser-local persistence with a reset to the supplied starting plan.

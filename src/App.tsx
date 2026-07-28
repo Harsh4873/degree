@@ -384,6 +384,10 @@ export default function App() {
     }));
   };
 
+  const updateCustomDraft = (patch: Partial<CustomDraft>) => {
+    setCustomDraft((current) => ({ ...current, ...patch }));
+  };
+
   const addCustomCourse = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!quickTermId || !customDraft.title.trim()) {
@@ -514,6 +518,10 @@ export default function App() {
     }
   };
 
+  const completedChecks = evaluation.requirements.filter((requirement) => requirement.status === 'complete').length;
+  const totalChecks = evaluation.requirements.length;
+  const creditProgress = Math.min(evaluation.countableCredits / 30, 1);
+
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -555,7 +563,24 @@ export default function App() {
         </section>
 
         <section className="metric-strip" aria-label="Plan summary">
-          <div className="metric-card"><span>Degree-plan credits</span><strong>{evaluation.countableCredits}</strong><small>of 30 minimum · {evaluation.totalCredits} planned</small></div>
+          <div className="metric-card">
+            <span>Degree-plan credits</span>
+            <strong>{evaluation.countableCredits}</strong>
+            <small>of 30 minimum · {evaluation.totalCredits} planned</small>
+            <div
+              className="metric-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={30}
+              aria-valuenow={Math.min(evaluation.countableCredits, 30)}
+              aria-label="Credits counted toward the 30-hour minimum"
+            >
+              <div
+                className={`metric-progress__fill ${creditProgress >= 1 ? 'metric-progress__fill--done' : ''}`}
+                style={{ width: `${creditProgress * 100}%` }}
+              />
+            </div>
+          </div>
           <div className="metric-card"><span>Graded CSCE</span><strong>{evaluation.gradedCsceCredits}</strong><small>18 minimum</small></div>
           <div className={`metric-card ${evaluation.researchCredits < 3 ? 'metric-card--attention' : ''}`}><span>CSCE 691 research</span><strong>{evaluation.researchCredits}</strong><small>{evaluation.researchCountable} count toward the 30</small></div>
           <div className="metric-card"><span>Terms on board</span><strong>{planner.terms.length}</strong><small>fully editable</small></div>
@@ -568,9 +593,25 @@ export default function App() {
                 <p className="section-kicker">Live validation</p>
                 <h2>Degree requirements</h2>
               </div>
-              <span className="panel-heading__count">{evaluation.requirements.filter((requirement) => requirement.status === 'complete').length}/{evaluation.requirements.length}</span>
+              <span className="panel-heading__count">{completedChecks}/{totalChecks}</span>
             </div>
             <p className="panel-intro">Rules below come from the MSCS degree page; hours beyond a category cap stay on the board without counting toward the 30. Course placement and prior-completion switches remain yours to edit.</p>
+            <div className="panel-progress">
+              <div
+                className="panel-progress__track"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={totalChecks}
+                aria-valuenow={completedChecks}
+                aria-label="Requirement checks complete"
+              >
+                <div
+                  className={`panel-progress__fill ${completedChecks === totalChecks ? 'panel-progress__fill--done' : ''}`}
+                  style={{ width: `${(completedChecks / totalChecks) * 100}%` }}
+                />
+              </div>
+              <span>{completedChecks} of {totalChecks} checks complete</span>
+            </div>
             <div className="requirement-list">
               {evaluation.requirements.map((requirement) => {
                 const area = breadthFromRequirementId(requirement.id);
@@ -588,10 +629,13 @@ export default function App() {
                           <input
                             type="checkbox"
                             checked={planner.completedBreadth[area]}
-                            onChange={(event) => setPlanner((current) => ({
-                              ...current,
-                              completedBreadth: { ...current.completedBreadth, [area]: event.currentTarget.checked },
-                            }))}
+                            onChange={(event) => {
+                              const completed = event.currentTarget.checked;
+                              setPlanner((current) => ({
+                                ...current,
+                                completedBreadth: { ...current.completedBreadth, [area]: completed },
+                              }));
+                            }}
                           />
                           <span>Treat as complete before this plan</span>
                         </label>
@@ -659,7 +703,7 @@ export default function App() {
             <div>
               <p className="section-kicker">Catalog-backed course bank</p>
               <h2 id="course-library-heading">Courses to place</h2>
-              <p>Titles, credits, and prerequisite text come from the TAMU CSCE graduate catalog. Drag cards to the board, or use quick add.</p>
+              <p>Titles, credits, and prerequisite text come from the TAMU graduate catalog, including non-CSCE electives for the six-hour outside-department slot. Drag cards to the board, or use quick add.</p>
             </div>
             <div className="library-header__controls">
               <label className="search-control">
@@ -709,10 +753,10 @@ export default function App() {
           </div>
           {showCustomForm && (
             <form className="custom-course-form" onSubmit={addCustomCourse}>
-              <label>Course code<input value={customDraft.code} onChange={(event) => setCustomDraft((current) => ({ ...current, code: event.currentTarget.value }))} placeholder="Example: STAT 640" /></label>
-              <label>Course title<input required value={customDraft.title} onChange={(event) => setCustomDraft((current) => ({ ...current, title: event.currentTarget.value }))} placeholder="Advisor-approved elective" /></label>
-              <label>Credits<input type="number" min="0" max="30" value={customDraft.credits} onChange={(event) => setCustomDraft((current) => ({ ...current, credits: Math.max(0, Number(event.currentTarget.value) || 0) }))} /></label>
-              <label>Classification<select value={customDraft.kind} onChange={(event) => setCustomDraft((current) => ({ ...current, kind: event.currentTarget.value as CourseKind }))}>{Object.entries(kindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+              <label>Course code<input value={customDraft.code} onChange={(event) => updateCustomDraft({ code: event.currentTarget.value })} placeholder="Example: MATH 609" /></label>
+              <label>Course title<input required value={customDraft.title} onChange={(event) => updateCustomDraft({ title: event.currentTarget.value })} placeholder="Advisor-approved elective" /></label>
+              <label>Credits<input type="number" min="0" max="30" value={customDraft.credits} onChange={(event) => updateCustomDraft({ credits: Math.max(0, Number(event.currentTarget.value) || 0) })} /></label>
+              <label>Classification<select value={customDraft.kind} onChange={(event) => updateCustomDraft({ kind: event.currentTarget.value as CourseKind })}>{Object.entries(kindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
               <button className="primary-button" type="submit"><Plus size={16} />Add to {planner.terms.find((term) => term.id === quickTermId)?.name || 'plan'}</button>
             </form>
           )}

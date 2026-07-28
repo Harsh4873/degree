@@ -94,4 +94,22 @@ describe('evaluatePlan', () => {
     expect(evaluation.alerts.some((alert) => alert.id === 'excluded-custom-excluded')).toBe(true);
     expect(evaluation.alerts.some((alert) => alert.id === 'excluded-custom-excluded-481')).toBe(true);
   });
+
+  it('counts non-CSCE electives toward the six-hour cap', () => {
+    const statistics = catalogCourseById('stat-630');
+
+    if (!statistics) {
+      throw new Error('Expected catalog course was not found');
+    }
+
+    const planner: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Term one', courses: [cloneCourse(statistics)] }],
+    };
+
+    const evaluation = evaluatePlan(planner);
+
+    expect(evaluation.requirements.find((rule) => rule.id === 'non-csce')?.value).toBe('3 planned · 3 count');
+    expect(evaluation.countableCredits).toBe(3);
+  });
 });
