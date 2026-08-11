@@ -4,16 +4,18 @@ An editable, local-first degree planning canvas published at `https://harsh.bet/
 
 ## What it models
 
-- An editable six-term starting plan: Fall 2026 through Summer 2028, with two courses in each fall and spring, research-only summers, and CSCE 671 + CSCE 627 in the first term.
+- An empty starting board: four upcoming terms named from today's date, with no courses placed and no breadth assumptions ticked. Terms are renameable and you can add or remove them.
 - Drag-and-drop placement from a catalog-backed course bank covering every published Theory, Systems, and Software breadth option, plus custom courses and editable course credits.
 - Verified non-CSCE elective options (STAT 601/616/630, MATH 640, ECEN 649) for the six-hour outside-department slot.
 - Live checks for the MSCS degree-plan minimums, breadth areas, seminar, research, directed-study, non-CSCE graduate course, and 400-level course limits.
 - Catalog prerequisite preparation alerts and a verified Fall 2026 online-course indicator. A missing indicator does **not** mean a course is unavailable.
-- Browser-local persistence with a reset to the supplied starting plan.
+- Browser-local persistence with a reset back to the empty board.
 - Optional Google sign-in that mirrors the plan across devices; the planner is fully usable signed out.
 - Light and dark themes with a header toggle; the first visit follows the system preference.
 
-The initial plan follows the requested CSCE 691 reserve: 3 credits in each fall and spring and 6 credits in each summer. Per the published degree plan and the student's advisor guidance, only 3–6 CSCE 691 credits count toward the 30-hour requirement, so the planner counts at most 6 research credits (and at most 7 combined CSCE 685 + 691 credits) while leaving total research enrollment unlimited — extra hours simply do not count. The system breadth requirement starts marked as complete, as an editable planning assumption.
+Per the published degree plan and advisor guidance, only 3–6 CSCE 691 credits count toward the 30-hour requirement, so the planner counts at most 6 research credits (and at most 7 combined CSCE 685 + 691 credits) while leaving total research enrollment unlimited — extra hours simply do not count. Breadth areas already satisfied elsewhere are editable assumptions that add no credits; all three start unticked.
+
+The board opens empty on purpose. Nobody else's plan is compiled into the app: your own plan is restored from this browser, or from your account once you sign in. `src/examplePlan.ts` holds a densely populated plan used only by the tests.
 
 ## Official sources
 

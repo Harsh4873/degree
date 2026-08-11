@@ -99,6 +99,7 @@ export function useDegreeSync(
   const pushTimerRef = useRef<number | undefined>(undefined);
   const applyRemoteRef = useRef(applyRemotePlanner);
   const adoptingRef = useRef(false);
+  const baselineSetRef = useRef(false);
 
   applyRemoteRef.current = applyRemotePlanner;
   plannerRef.current = planner;
@@ -127,6 +128,16 @@ export function useDegreeSync(
 
     if (adoptingRef.current) {
       adoptingRef.current = false;
+      syncedTextRef.current = text;
+      return;
+    }
+
+    // The first planner this hook sees is whatever the device already had —
+    // a stored plan, or the empty starting board. That is not an edit, and
+    // stamping it with the current time would make an untouched board look
+    // newer than the plan in the account and overwrite it on the next sign-in.
+    if (!baselineSetRef.current) {
+      baselineSetRef.current = true;
       syncedTextRef.current = text;
       return;
     }

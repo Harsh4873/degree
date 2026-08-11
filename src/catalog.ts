@@ -436,44 +436,54 @@ function course(id: string, credits?: number) {
   return cloneCourse(template, credits);
 }
 
-export function createSeedPlanner(): Planner {
+type SeasonName = 'Spring' | 'Summer' | 'Fall';
+
+const SEASON_ORDER: SeasonName[] = ['Spring', 'Summer', 'Fall'];
+
+function currentSeasonIndex(month: number) {
+  if (month <= 4) return 0; // January–May
+  if (month <= 6) return 1; // June–July
+  return 2; // August–December
+}
+
+/**
+ * Term labels for a plan that starts now: the term already under way, then the
+ * ones after it. Derived from the clock so a first visit is never anchored to
+ * somebody else's calendar.
+ */
+export function upcomingTermNames(now: Date, count: number): string[] {
+  const names: string[] = [];
+  let year = now.getFullYear();
+  let index = currentSeasonIndex(now.getMonth());
+
+  for (let step = 0; step < count; step += 1) {
+    names.push(`${SEASON_ORDER[index]} ${year}`);
+    index += 1;
+    if (index === SEASON_ORDER.length) {
+      index = 0;
+      year += 1;
+    }
+  }
+
+  return names;
+}
+
+/**
+ * The board a brand-new visitor gets: empty terms and no assumptions ticked.
+ * Anyone's saved plan is restored from their own browser or their signed-in
+ * account before this is ever called.
+ */
+export function createSeedPlanner(now = new Date()): Planner {
   return {
     completedBreadth: {
       theory: false,
-      systems: true,
+      systems: false,
       software: false,
     },
-    terms: [
-      {
-        id: 'fall-2026',
-        name: 'Fall 2026',
-        courses: [course('csce-671'), course('csce-627'), course('csce-691', 3)],
-      },
-      {
-        id: 'spring-2027',
-        name: 'Spring 2027',
-        courses: [course('csce-625'), course('csce-629'), course('csce-681'), course('csce-691', 3)],
-      },
-      {
-        id: 'summer-2027',
-        name: 'Summer 2027',
-        courses: [course('csce-691', 6)],
-      },
-      {
-        id: 'fall-2027',
-        name: 'Fall 2027',
-        courses: [course('csce-633'), course('csce-612'), course('csce-691', 3)],
-      },
-      {
-        id: 'spring-2028',
-        name: 'Spring 2028',
-        courses: [course('csce-735'), course('csce-606'), course('csce-691', 3)],
-      },
-      {
-        id: 'summer-2028',
-        name: 'Summer 2028',
-        courses: [course('csce-691', 6)],
-      },
-    ],
+    terms: upcomingTermNames(now, 4).map((name) => ({
+      id: name.toLowerCase().replace(/\s+/g, '-'),
+      name,
+      courses: [],
+    })),
   };
 }

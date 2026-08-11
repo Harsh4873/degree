@@ -12,7 +12,8 @@ import {
   stableStringify,
   type ParsedPlan,
 } from './sync-core';
-import { createSeedPlanner } from './catalog';
+import { createSeedPlanner, upcomingTermNames } from './catalog';
+import { createExamplePlanner } from './examplePlan';
 import type { Planner } from './types';
 
 const emptyBreadth = { theory: false, systems: true, software: false };
@@ -141,7 +142,40 @@ describe('prerequisitePaths wire encoding', () => {
   });
 });
 
-describe('the real seed plan', () => {
+describe('the starting board a new visitor gets', () => {
+  it('is empty, with no courses and no assumptions ticked', () => {
+    const seed = createSeedPlanner(new Date('2026-08-10T12:00:00Z'));
+    expect(seed.terms.every((term) => term.courses.length === 0)).toBe(true);
+    expect(seed.completedBreadth).toEqual({ theory: false, systems: false, software: false });
+  });
+
+  it('names terms from the current date rather than a fixed calendar', () => {
+    expect(createSeedPlanner(new Date('2026-08-10T12:00:00Z')).terms.map((term) => term.name))
+      .toEqual(['Fall 2026', 'Spring 2027', 'Summer 2027', 'Fall 2027']);
+    expect(createSeedPlanner(new Date('2027-02-01T12:00:00Z')).terms.map((term) => term.name))
+      .toEqual(['Spring 2027', 'Summer 2027', 'Fall 2027', 'Spring 2028']);
+  });
+
+  it('carries nothing that identifies a particular student', () => {
+    const text = JSON.stringify(createSeedPlanner(new Date('2026-08-10T12:00:00Z')));
+    expect(text).not.toMatch(/CSCE|691|671|627/);
+  });
+});
+
+describe('upcomingTermNames', () => {
+  it('rolls Spring into Summer into Fall and then into the next year', () => {
+    expect(upcomingTermNames(new Date('2026-03-01T12:00:00Z'), 4))
+      .toEqual(['Spring 2026', 'Summer 2026', 'Fall 2026', 'Spring 2027']);
+  });
+
+  it('treats June and July as Summer and August onward as Fall', () => {
+    expect(upcomingTermNames(new Date('2026-06-15T12:00:00Z'), 1)).toEqual(['Summer 2026']);
+    expect(upcomingTermNames(new Date('2026-08-01T12:00:00Z'), 1)).toEqual(['Fall 2026']);
+    expect(upcomingTermNames(new Date('2026-12-31T12:00:00Z'), 1)).toEqual(['Fall 2026']);
+  });
+});
+
+describe('a densely populated real plan', () => {
   function findNestedArray(value: unknown, path = 'planner'): string | undefined {
     if (Array.isArray(value)) {
       for (const [index, item] of value.entries()) {
@@ -161,14 +195,14 @@ describe('the real seed plan', () => {
   }
 
   it('serializes to a document Firestore can actually store', () => {
-    const doc = serializePlanDocument(createSeedPlanner(), 'client-a', 1);
+    const doc = serializePlanDocument(createExamplePlanner(), 'client-a', 1);
     // Firestore rejects any array whose elements are arrays, and the catalog
     // ships `prerequisitePaths: string[][]` on several courses.
     expect(findNestedArray(doc.planner)).toBeUndefined();
   });
 
   it('survives a full round trip unchanged', () => {
-    const planner = createSeedPlanner();
+    const planner = createExamplePlanner();
     const parsed = parsePlanDocument(serializePlanDocument(planner, 'client-a', 1));
     expect(parsed?.planner).toEqual(planner);
   });

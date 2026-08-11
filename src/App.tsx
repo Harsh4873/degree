@@ -614,8 +614,8 @@ export default function App() {
           <aside className="hero__note">
             <Info size={18} />
             <div>
-              <strong>Systems breadth starts marked complete.</strong>
-              <p>It is an editable assumption and adds no credits; toggle it in the requirements panel.</p>
+              <strong>Start by dragging courses onto a term.</strong>
+              <p>Breadth areas you have already satisfied are editable assumptions that add no credits; tick them in the requirements panel.</p>
             </div>
           </aside>
         </section>

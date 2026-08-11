@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { catalogCourseById, cloneCourse, createSeedPlanner } from './catalog';
+import { catalogCourseById, cloneCourse } from './catalog';
+import { createExamplePlanner } from './examplePlan';
 import { evaluatePlan } from './degreeRules';
 import type { Planner } from './types';
 
 describe('evaluatePlan', () => {
   it('counts capped research toward the 30-hour plan without limiting enrollment', () => {
-    const evaluation = evaluatePlan(createSeedPlanner());
+    const evaluation = evaluatePlan(createExamplePlanner());
 
     expect(evaluation.totalCredits).toBe(49);
     expect(evaluation.gradedCsceCredits).toBe(24);
@@ -65,7 +66,7 @@ describe('evaluatePlan', () => {
   });
 
   it('recognizes degree-plan-excluded course codes even when entered as custom items', () => {
-    const planner = createSeedPlanner();
+    const planner = createExamplePlanner();
     planner.terms[0].courses.push(
       {
         instanceId: 'custom-excluded',
