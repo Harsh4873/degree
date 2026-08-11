@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
   BookOpen,
   Check,
   CircleAlert,
+  Cloud,
+  CloudOff,
   ExternalLink,
   GraduationCap,
   GripVertical,
   Info,
   Library,
+  LoaderCircle,
+  LogIn,
+  LogOut,
   Moon,
   Pencil,
   Plus,
@@ -17,10 +22,12 @@ import {
   Search,
   Sun,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-react';
 import { catalogCourseById, catalogCourses, cloneCourse, createSeedPlanner, officialSources } from './catalog';
 import { evaluatePlan } from './degreeRules';
+import { useDegreeSync, type SyncStatus } from './useDegreeSync';
 import type { BreadthArea, CourseKind, CourseTemplate, PlannedCourse, Planner, Term } from './types';
 
 const STORAGE_KEY = 'degree-canvas-tamu-mscs-v2';
@@ -58,6 +65,22 @@ const emptyCustomDraft = (): CustomDraft => ({
 });
 
 const creditLabel = (credits: number) => `${credits} credit${credits === 1 ? '' : 's'}`;
+
+const syncPresentation: Record<SyncStatus, { icon: typeof Cloud; label: string; hint: string }> = {
+  'signed-out': {
+    icon: Cloud,
+    label: 'Saved on this device',
+    hint: 'Sign in with Google to keep this plan on every device.',
+  },
+  syncing: { icon: LoaderCircle, label: 'Syncing', hint: 'Saving this plan to your account.' },
+  synced: { icon: Check, label: 'Synced', hint: 'This plan matches the copy in your account.' },
+  offline: {
+    icon: CloudOff,
+    label: 'Offline',
+    hint: 'Edits stay on this device and sync when you reconnect.',
+  },
+  'action-needed': { icon: TriangleAlert, label: 'Sync paused', hint: 'Sync needs attention.' },
+};
 
 const sumCredits = (courses: PlannedCourse[]) =>
   courses.reduce((total, course) => total + course.credits, 0);
@@ -331,6 +354,9 @@ export default function App() {
   const [customDraft, setCustomDraft] = useState<CustomDraft>(emptyCustomDraft);
   const [theme, setTheme] = useState<Theme>(loadTheme);
 
+  const applyRemotePlanner = useCallback((next: Planner) => setPlanner(next), []);
+  const sync = useDegreeSync(planner, applyRemotePlanner);
+
   const evaluation = useMemo(() => evaluatePlan(planner), [planner]);
   const visibleCatalog = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -521,6 +547,7 @@ export default function App() {
   const completedChecks = evaluation.requirements.filter((requirement) => requirement.status === 'complete').length;
   const totalChecks = evaluation.requirements.length;
   const creditProgress = Math.min(evaluation.countableCredits / 30, 1);
+  const SyncStatusIcon = syncPresentation[sync.status].icon;
 
   return (
     <div className="app-shell">
@@ -533,7 +560,31 @@ export default function App() {
           </span>
         </a>
         <div className="site-header__actions">
-          <span className="saved-state"><span aria-hidden="true" />Saved on this device</span>
+          <span
+            className={`saved-state saved-state--${sync.status}`}
+            title={sync.message ?? syncPresentation[sync.status].hint}
+          >
+            <SyncStatusIcon
+              size={14}
+              aria-hidden="true"
+              className={sync.status === 'syncing' ? 'spin' : undefined}
+            />
+            {syncPresentation[sync.status].label}
+          </span>
+          {sync.user ? (
+            <button
+              className="header-reset"
+              type="button"
+              onClick={() => void sync.signOut()}
+              title={sync.user.email ? `Signed in as ${sync.user.email}` : 'Signed in'}
+            >
+              <LogOut size={15} />Sign out
+            </button>
+          ) : (
+            <button className="header-reset" type="button" onClick={() => void sync.signIn()}>
+              <LogIn size={15} />Sign in
+            </button>
+          )}
           <a className="header-link" href="#sources"><BookOpen size={15} />Sources</a>
           <button
             className="header-reset"
@@ -548,6 +599,13 @@ export default function App() {
       </header>
 
       <main id="top">
+        {sync.status === 'action-needed' && sync.message && (
+          <div className="sync-notice" role="alert">
+            <CircleAlert size={16} />
+            <span>{sync.message}</span>
+          </div>
+        )}
+
         <section className="hero" aria-labelledby="planner-title">
           <div className="hero__copy">
             <p className="eyebrow">TEXAS A&amp;M UNIVERSITY · MASTER OF SCIENCE IN COMPUTER SCIENCE</p>
@@ -793,7 +851,9 @@ export default function App() {
         </section>
       </main>
 
-      <footer className="site-footer">Degree Canvas · TAMU MSCS · saved in this browser</footer>
+      <footer className="site-footer">
+        Degree Canvas · TAMU MSCS · {sync.user ? 'synced to your Google account' : 'saved in this browser'}
+      </footer>
     </div>
   );
 }
