@@ -14,8 +14,9 @@ This repository is for the owner's graduate degree planner only.
   current Howdy schedule. Keep the copy that says so, and keep "no online indicator" distinct from "not offered".
 - Keep the planner local-first. The board opens empty, plans live in `localStorage`, and it must stay fully usable signed
   out. Never compile a real plan into the app — `src/examplePlan.ts` is fixture data for the tests only.
-- Google sign-in is optional and additive. Signing in mirrors the whole board to that user's own document; there is no
-  allowlist and no shared plan. Do not add a sign-in wall, an email allowlist, or a server the planner needs to work.
+- Google sign-in is optional and additive. Only provisioned owner-vault members may sync, and both approved identities
+  resolve to the same private plan document. Keep signed-out local use available. During sign-in, validate and hydrate
+  the cloud recovery plan before unlocking edits; an empty or malformed cloud document must never overwrite a local plan.
 - Sync is last-write-wins on `updatedAtMs`, which never moves backwards, and a device that has never synced adopts the
   cloud plan rather than overwriting it. `src/sync-core.ts` owns the wire encoding — Firestore cannot store `string[][]`,
   so `prerequisitePaths` travels as a list of maps. Change that contract only together with its unit tests.

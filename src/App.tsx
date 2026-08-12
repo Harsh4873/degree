@@ -606,6 +606,19 @@ export default function App() {
           </div>
         )}
 
+        {sync.isHydrating && (
+          <div className="sync-notice" role="status">
+            <RefreshCw className="spin" size={16} />
+            <span>Loading the existing shared-vault planner. Editing is locked until recovery validation finishes.</span>
+          </div>
+        )}
+
+        <fieldset
+          className="vault-hydration-lock"
+          disabled={sync.isHydrating}
+          aria-busy={sync.isHydrating}
+        >
+
         <section className="hero" aria-labelledby="planner-title">
           <div className="hero__copy">
             <p className="eyebrow">TEXAS A&amp;M UNIVERSITY · MASTER OF SCIENCE IN COMPUTER SCIENCE</p>
@@ -849,6 +862,7 @@ export default function App() {
             {officialSources.map((source) => <a key={source.href} href={source.href} target="_blank" rel="noreferrer"><Library size={16} />{source.label}<ExternalLink size={13} /></a>)}
           </div>
         </section>
+        </fieldset>
       </main>
 
       <footer className="site-footer">

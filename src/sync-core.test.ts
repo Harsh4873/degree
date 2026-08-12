@@ -4,6 +4,7 @@ import {
   decodePlanner,
   encodePlanner,
   isVerifiedGoogleAccount,
+  isRecoverablePlanner,
   applyCompletedPush,
   accountSwitchRequiresFreshPlan,
   nextUpdatedAtMs,
@@ -213,6 +214,19 @@ describe('the starting board a new visitor gets', () => {
   it('carries nothing that identifies a particular student', () => {
     const text = JSON.stringify(createSeedPlanner(new Date('2026-08-10T12:00:00Z')));
     expect(text).not.toMatch(/CSCE|691|671|627/);
+  });
+});
+
+describe('sign-in recovery guard', () => {
+  it('rejects an empty seed document even when its wire schema is valid', () => {
+    const seed = createSeedPlanner(new Date('2026-08-10T12:00:00Z'));
+    const parsed = parsePlanDocument(serializePlanDocument(seed, 'empty-device', 100));
+    expect(parsed).toBeDefined();
+    expect(isRecoverablePlanner(parsed!.planner)).toBe(false);
+  });
+
+  it('accepts a validated planner only after at least one course is present', () => {
+    expect(isRecoverablePlanner(createExamplePlanner())).toBe(true);
   });
 });
 

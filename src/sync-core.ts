@@ -1,7 +1,8 @@
 import type { BreadthArea, PlannedCourse, Planner, Term } from './types';
 
 /**
- * Degree Canvas syncs one document per account: `degree_users/{uid}`.
+ * Degree Canvas syncs one document in the private shared owner vault:
+ * `degree_users/{vaultId}`.
  *
  *   - The whole planner board travels as a single value. A plan is small and
  *     every edit touches term ordering, so splitting it into per-course
@@ -136,6 +137,12 @@ export function plannersEqual(left: Planner, right: Planner): boolean {
   return plannerFingerprint(left) === plannerFingerprint(right);
 }
 
+/** A sign-in recovery copy must contain actual coursework, not only seed terms. */
+export function isRecoverablePlanner(planner: Planner): boolean {
+  return planner.terms.length > 0
+    && planner.terms.some((term) => Array.isArray(term.courses) && term.courses.length > 0);
+}
+
 export function serializePlanDocument(
   planner: Planner,
   clientId: string,
@@ -231,7 +238,7 @@ export function nextUpdatedAtMs(now: number, lastKnown: number): number {
   return now > lastKnown ? now : lastKnown + 1;
 }
 
-/** Sync metadata is account-scoped so one account can never outrank another. */
+/** Sync metadata is vault-scoped so stale legacy account clocks cannot win. */
 export function syncStampStorageKey(uid: string): string {
   return `degree-canvas-updated-at-v2:${uid}`;
 }

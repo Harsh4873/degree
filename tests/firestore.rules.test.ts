@@ -7,7 +7,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import { readFile } from 'node:fs/promises';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from 'vitest';
 
 const PROJECT_ID = 'demo-degree';
 const TEST_EMAIL = 'user.one@example.com';
@@ -53,6 +53,14 @@ describe.skipIf(!EMULATOR_ADDRESS)('Degree Canvas Firestore security rules', () 
     });
   });
 
+  beforeEach(async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'owner_vault_members', OWNER_UID), {
+        vaultId: OWNER_UID, schemaVersion: 1, status: 'active', legacyWritesEnabled: false,
+      });
+    });
+  });
+
   afterEach(async () => {
     await testEnvironment.clearFirestore();
   });
@@ -67,11 +75,11 @@ describe.skipIf(!EMULATOR_ADDRESS)('Degree Canvas Firestore security rules', () 
     await assertSucceeds(getDoc(doc(firestore, 'degree_users', OWNER_UID)));
   });
 
-  it('allows another verified Google account its own UID-scoped plan', async () => {
+  it('denies an unapproved verified Google account a Firebase plan', async () => {
     const secondUid = 'second-degree-user';
     const firestore = authorizedContext(testEnvironment, secondUid, { email: 'someone-else@gmail.com' }).firestore();
-    await assertSucceeds(setDoc(doc(firestore, 'degree_users', secondUid), PLAN_DOC));
-    await assertSucceeds(getDoc(doc(firestore, 'degree_users', secondUid)));
+    await assertFails(setDoc(doc(firestore, 'degree_users', secondUid), PLAN_DOC));
+    await assertFails(getDoc(doc(firestore, 'degree_users', secondUid)));
   });
 
   it('rejects a plan with an unexpected schema version', async () => {

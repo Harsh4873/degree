@@ -8,9 +8,9 @@ import {
 import { doc, onSnapshot, setDoc, waitForPendingWrites } from 'firebase/firestore';
 import { authPersistenceReady, degreeFirestore, firebaseAuth, googleProvider } from './firebase';
 import {
-  accountSwitchRequiresFreshPlan,
   applyCompletedPush,
   isVerifiedGoogleAccount,
+  isRecoverablePlanner,
   nextUpdatedAtMs,
   parsePlanDocument,
   plannerFingerprint,
@@ -18,7 +18,7 @@ import {
   serializePlanDocument,
   syncStampStorageKey,
 } from './sync-core';
-import { createSeedPlanner } from './catalog';
+import { resolveOwnerVault } from './owner-vault';
 import type { Planner } from './types';
 
 const CLIENT_KEY = 'degree-canvas-client-v1';
@@ -33,6 +33,8 @@ export interface DegreeSync {
   user: User | null;
   message?: string;
   lastSyncedAt?: number;
+  /** True until the existing shared-vault planner has been validated and adopted. */
+  isHydrating: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -133,12 +135,12 @@ async function hasEligibleSyncSession(user: User): Promise<boolean> {
 }
 
 /**
- * Keeps the planner mirrored in `degree_users/{uid}`.
+ * Keeps the planner mirrored in `degree_users/{vaultId}`.
  *
  * The planner works fully signed-out — Firestore is an optional layer on top
- * of the existing localStorage copy. Any verified Google account gets its own
- * UID-scoped plan; there is deliberately no email allowlist, so the same build
- * serves every visitor rather than one owner.
+ * of the existing localStorage copy. Approved Google identities resolve to one
+ * private shared vault. The cloud planner is authoritative during hydration;
+ * the visible browser plan stays locked and is never replaced by an empty seed.
  */
 export function useDegreeSync(
   planner: Planner,
@@ -148,6 +150,7 @@ export function useDegreeSync(
   const [status, setStatus] = useState<SyncStatus>('signed-out');
   const [message, setMessage] = useState<string | undefined>(undefined);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | undefined>(undefined);
+  const [isHydrating, setIsHydrating] = useState(false);
 
   const plannerRef = useRef(planner);
   const stampRef = useRef(0);
@@ -163,6 +166,7 @@ export function useDegreeSync(
   const sessionRevisionRef = useRef(0);
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const lastSyncedAtRef = useRef<number | undefined>(undefined);
+  const hydratingRef = useRef(false);
 
   applyRemoteRef.current = applyRemotePlanner;
   plannerRef.current = planner;
@@ -201,6 +205,11 @@ export function useDegreeSync(
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const text = plannerFingerprint(planner);
+
+    // Authentication is not an edit. While the vault snapshot is loading the
+    // existing board remains visible but locked, and no local fingerprint may
+    // acquire a fresh timestamp or be uploaded over the recovery copy.
+    if (hydratingRef.current) return;
 
     if (adoptingRef.current) {
       adoptingRef.current = false;
@@ -273,32 +282,63 @@ export function useDegreeSync(
         return;
       }
 
-      setUser(authUser);
-      const uid = authUser.uid;
-      const previousOwner = readPlanOwner();
-      if (accountSwitchRequiresFreshPlan(previousOwner, uid)) {
-        const fresh = createSeedPlanner();
-        adoptingRef.current = true;
-        plannerRef.current = fresh;
-        syncedTextRef.current = plannerFingerprint(fresh);
-        applyRemoteRef.current(fresh);
+      let membership;
+      try {
+        membership = await resolveOwnerVault(degreeFirestore, authUser);
+      } catch (error) {
+        if (disposed || sequence !== authSequence) return;
+        const reason = error instanceof Error ? error.message : 'This account cannot access the shared owner vault.';
+        blockedAccountMessageRef.current = reason;
+        setStatus('action-needed');
+        setMessage(reason);
+        return;
       }
+      if (disposed || sequence !== authSequence) return;
+
+      setUser(authUser);
+      const uid = membership.vaultId;
       sessionRevisionRef.current = sequence;
       uidRef.current = uid;
       const accountStamp = readStamp(uid);
-      stampRef.current = previousOwner ? accountStamp : Math.max(accountStamp, readUnscopedStamp());
-      writeStamp(uid, stampRef.current);
-      clearUnscopedStamp();
-      writePlanOwner(uid);
+      stampRef.current = accountStamp;
       editStampRef.current = undefined;
+      hydratingRef.current = true;
+      setIsHydrating(true);
       setStatus(navigator.onLine ? 'syncing' : 'offline');
-      setMessage(undefined);
+      setMessage('Loading the existing shared-vault planner…');
 
       unsubscribeDoc = onSnapshot(
         doc(degreeFirestore, 'degree_users', uid),
         (snapshot) => {
           if (disposed || uidRef.current !== uid) return;
-          const remote = snapshot.exists() ? parsePlanDocument(snapshot.data()) : undefined;
+          const parsedRemote = snapshot.exists() ? parsePlanDocument(snapshot.data()) : undefined;
+          const remote = parsedRemote && isRecoverablePlanner(parsedRemote.planner)
+            ? parsedRemote
+            : undefined;
+          if (!remote) {
+            setStatus('action-needed');
+            setMessage('The shared vault has no validated Degree recovery copy. Nothing was uploaded; restore the archived planner before continuing.');
+            return;
+          }
+
+          // First load is recovery-first: the migrated shared-vault document
+          // always wins over this browser's possibly empty or stale board.
+          if (hydratingRef.current) {
+            adoptingRef.current = true;
+            syncedTextRef.current = plannerFingerprint(remote.planner);
+            stampRef.current = remote.updatedAtMs;
+            writeStamp(uid, remote.updatedAtMs);
+            writePlanOwner(uid);
+            clearUnscopedStamp();
+            applyRemoteRef.current(remote.planner);
+            hydratingRef.current = false;
+            setIsHydrating(false);
+            setLastSyncedAt(remote.updatedAtMs);
+            lastSyncedAtRef.current = remote.updatedAtMs;
+            setStatus(navigator.onLine ? 'synced' : 'offline');
+            setMessage(undefined);
+            return;
+          }
           const resolution = resolvePlan(plannerRef.current, stampRef.current, remote);
 
           if (resolution.action === 'adopt-remote') {
@@ -352,6 +392,8 @@ export function useDegreeSync(
       window.clearTimeout(pushTimerRef.current);
       editStampRef.current = undefined;
       uidRef.current = null;
+      hydratingRef.current = false;
+      setIsHydrating(false);
       syncedTextRef.current = undefined;
       setUser(null);
 
@@ -365,7 +407,6 @@ export function useDegreeSync(
         return;
       }
 
-      // No allowlist: every verified Google session gets its own plan.
       void startSession(authUser, sequence);
     });
 
@@ -432,5 +473,5 @@ export function useDegreeSync(
     }
   }, []);
 
-  return { status, user, message, lastSyncedAt, signIn, signOut };
+  return { status, user, message, lastSyncedAt, isHydrating, signIn, signOut };
 }

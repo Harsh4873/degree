@@ -29,21 +29,22 @@ This is a planning aid, not an approved degree plan or a substitute for the stud
 
 ## Sync
 
-Sign-in is optional. Signed out, the plan lives in `localStorage` exactly as before. Signing in
-with a verified Google account mirrors it to `degree_users/{uid}` in the shared `pickledgerpro`
-Firebase project, under a named Firebase app so the session stays separate from the other
-harsh.bet tools on the same origin. There is no email allowlist: every verified Google account
-gets its own isolated plan.
+Sign-in is optional. Signed out, the plan lives in `localStorage` exactly as before. A verified,
+provisioned Google session resolves through `owner_vault_members/{uid}` to the shared private
+`degree_users/{vaultId}` document in the `pickledgerpro` Firebase project. The approved identities
+therefore see the same plan and share the same Firebase session namespace as the other private
+harsh.bet tools.
 
 The whole board travels as one document, resolved last-write-wins on `updatedAtMs`, which the
-security rules forbid from moving backwards. A device that has never synced adopts the cloud plan
-rather than overwriting it. `prerequisitePaths` is a `string[][]`, which Firestore cannot store, so
+security rules forbid from moving backwards. Sign-in is recovery-first: editing remains locked until
+the existing nonempty cloud plan is validated and adopted, and a missing/malformed document triggers
+an action-required state instead of uploading an empty board. `prerequisitePaths` is a `string[][]`, which Firestore cannot store, so
 it is encoded as a list of maps on the wire and decoded on the way back — `src/sync-core.ts` owns
 that contract and is covered by unit tests.
 
 `firestore.rules` holds the **entire** shared ruleset for every app in the `pickledgerpro`
 project, because deploying rules replaces the project's whole ruleset. It must stay byte-identical
-to the copies in Gym, Daymark, Slate, Fare, Notes, and Research; `notes/scripts/check-shared-rules.mjs`
+to the copies in Gym, Daymark, Slate, Fare, Notes, Research, Studies, and Radar; `notes/scripts/check-shared-rules.mjs`
 enforces that. After changing it, deploy from the canonical copy:
 
 ```sh

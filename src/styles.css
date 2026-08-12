@@ -212,6 +212,18 @@ summary:focus-visible {
   font-weight: 600;
 }
 
+.vault-hydration-lock {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.vault-hydration-lock:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
 .sync-notice svg {
   flex: none;
 }
