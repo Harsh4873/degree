@@ -17,6 +17,23 @@ import type { BreadthArea, PlannedCourse, Planner, Term } from './types';
 
 export const DEGREE_SCHEMA_VERSION = 1;
 
+export interface SyncAccountClaims {
+  email: string | null | undefined;
+  emailVerified: boolean;
+  /** `undefined` means the token claim could not be inspected (usually offline). */
+  signInProvider: string | null | undefined;
+}
+
+/**
+ * Mirrors the shared rules before Degree opens a private listener. The token
+ * provider claim must be present and exact; a missing claim fails closed.
+ */
+export function isVerifiedGoogleAccount(account: SyncAccountClaims): boolean {
+  return Boolean(account.email?.trim())
+    && account.emailVerified
+    && account.signInProvider === 'google.com';
+}
+
 /**
  * Firestore cannot store an array whose elements are arrays, and
  * `CourseTemplate.prerequisitePaths` is exactly that (`string[][]` — a list of
@@ -212,4 +229,29 @@ export function resolvePlan(
 /** Writes must never move `updatedAtMs` backwards — the rules reject that. */
 export function nextUpdatedAtMs(now: number, lastKnown: number): number {
   return now > lastKnown ? now : lastKnown + 1;
+}
+
+/** Sync metadata is account-scoped so one account can never outrank another. */
+export function syncStampStorageKey(uid: string): string {
+  return `degree-canvas-updated-at-v2:${uid}`;
+}
+
+export function accountSwitchRequiresFreshPlan(previousUid: string | null, nextUid: string): boolean {
+  return Boolean(previousUid && previousUid !== nextUid);
+}
+
+export interface CompletedPushState {
+  stamp: number;
+  syncedText?: string;
+  lastSyncedAt?: number;
+}
+
+/** A late write may report success, but it must never move local metadata back. */
+export function applyCompletedPush(
+  current: CompletedPushState,
+  completedAt: number,
+  completedText: string,
+): CompletedPushState {
+  if (completedAt < current.stamp) return current;
+  return { stamp: completedAt, syncedText: completedText, lastSyncedAt: completedAt };
 }

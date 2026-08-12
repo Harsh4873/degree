@@ -8,16 +8,22 @@ import {
 import { doc, onSnapshot, setDoc, waitForPendingWrites } from 'firebase/firestore';
 import { authPersistenceReady, degreeFirestore, firebaseAuth, googleProvider } from './firebase';
 import {
+  accountSwitchRequiresFreshPlan,
+  applyCompletedPush,
+  isVerifiedGoogleAccount,
   nextUpdatedAtMs,
   parsePlanDocument,
   plannerFingerprint,
   resolvePlan,
   serializePlanDocument,
+  syncStampStorageKey,
 } from './sync-core';
+import { createSeedPlanner } from './catalog';
 import type { Planner } from './types';
 
-const STAMP_KEY = 'degree-canvas-updated-at-v1';
 const CLIENT_KEY = 'degree-canvas-client-v1';
+const PLAN_OWNER_KEY = 'degree-canvas-plan-owner-v1';
+const UNSCOPED_STAMP_KEY = 'degree-canvas-updated-at-unscoped-v2';
 const PUSH_DEBOUNCE_MS = 700;
 
 export type SyncStatus = 'signed-out' | 'syncing' | 'synced' | 'offline' | 'action-needed';
@@ -31,18 +37,56 @@ export interface DegreeSync {
   signOut: () => Promise<void>;
 }
 
-function readStamp(): number {
+function readStamp(uid: string): number {
   try {
-    const raw = Number(window.localStorage.getItem(STAMP_KEY));
+    const raw = Number(window.localStorage.getItem(syncStampStorageKey(uid)));
     return Number.isFinite(raw) && raw > 0 ? raw : 0;
   } catch {
     return 0;
   }
 }
 
-function writeStamp(value: number) {
+function writeStamp(uid: string, value: number) {
   try {
-    window.localStorage.setItem(STAMP_KEY, String(value));
+    window.localStorage.setItem(syncStampStorageKey(uid), String(value));
+  } catch {
+  }
+}
+
+function readPlanOwner(): string | null {
+  try {
+    return window.localStorage.getItem(PLAN_OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writePlanOwner(uid: string) {
+  try {
+    window.localStorage.setItem(PLAN_OWNER_KEY, uid);
+  } catch {
+  }
+}
+
+function readUnscopedStamp(): number {
+  try {
+    const raw = Number(window.localStorage.getItem(UNSCOPED_STAMP_KEY));
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeUnscopedStamp(value: number) {
+  try {
+    window.localStorage.setItem(UNSCOPED_STAMP_KEY, String(value));
+  } catch {
+  }
+}
+
+function clearUnscopedStamp() {
+  try {
+    window.localStorage.removeItem(UNSCOPED_STAMP_KEY);
   } catch {
   }
 }
@@ -74,6 +118,20 @@ function friendlyError(error: unknown): string {
   return 'Sync hit an unexpected problem. It will retry on the next change.';
 }
 
+async function hasEligibleSyncSession(user: User): Promise<boolean> {
+  let signInProvider: string | null | undefined;
+  try {
+    signInProvider = (await user.getIdTokenResult()).signInProvider ?? null;
+  } catch {
+    signInProvider = undefined;
+  }
+  return isVerifiedGoogleAccount({
+    email: user.email,
+    emailVerified: user.emailVerified,
+    signInProvider,
+  });
+}
+
 /**
  * Keeps the planner mirrored in `degree_users/{uid}`.
  *
@@ -97,25 +155,46 @@ export function useDegreeSync(
   const uidRef = useRef<string | null>(null);
   const clientIdRef = useRef('');
   const pushTimerRef = useRef<number | undefined>(undefined);
+  const editStampRef = useRef<number | undefined>(undefined);
   const applyRemoteRef = useRef(applyRemotePlanner);
   const adoptingRef = useRef(false);
   const baselineSetRef = useRef(false);
+  const blockedAccountMessageRef = useRef<string | null>(null);
+  const sessionRevisionRef = useRef(0);
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastSyncedAtRef = useRef<number | undefined>(undefined);
 
   applyRemoteRef.current = applyRemotePlanner;
   plannerRef.current = planner;
 
   if (!clientIdRef.current && typeof window !== 'undefined') {
     clientIdRef.current = readClientId();
-    stampRef.current = readStamp();
   }
 
-  const push = useCallback(async (uid: string, next: Planner, updatedAtMs: number) => {
-    const payload = serializePlanDocument(next, clientIdRef.current, updatedAtMs);
-    await setDoc(doc(degreeFirestore, 'degree_users', uid), payload);
-    syncedTextRef.current = plannerFingerprint(next);
-    stampRef.current = updatedAtMs;
-    writeStamp(updatedAtMs);
-    setLastSyncedAt(updatedAtMs);
+  const push = useCallback((uid: string, next: Planner, updatedAtMs: number, revision = sessionRevisionRef.current) => {
+    const completedText = plannerFingerprint(next);
+    const operation = writeQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (uidRef.current !== uid || sessionRevisionRef.current !== revision) return;
+        const payload = serializePlanDocument(next, clientIdRef.current, updatedAtMs);
+        await setDoc(doc(degreeFirestore, 'degree_users', uid), payload);
+        if (uidRef.current !== uid || sessionRevisionRef.current !== revision) return;
+        const completed = applyCompletedPush({
+          stamp: stampRef.current,
+          syncedText: syncedTextRef.current,
+          lastSyncedAt: lastSyncedAtRef.current,
+        }, updatedAtMs, completedText);
+        stampRef.current = completed.stamp;
+        syncedTextRef.current = completed.syncedText;
+        writeStamp(uid, completed.stamp);
+        if (completed.lastSyncedAt !== undefined) {
+          lastSyncedAtRef.current = completed.lastSyncedAt;
+          setLastSyncedAt(completed.lastSyncedAt);
+        }
+      });
+    writeQueueRef.current = operation;
+    return operation;
   }, []);
 
   // Push local edits, coalesced so a drag across the board is one write.
@@ -123,14 +202,14 @@ export function useDegreeSync(
     if (typeof window === 'undefined') return;
     const text = plannerFingerprint(planner);
 
-    // A plan we just adopted from the cloud is already the cloud's copy.
-    if (syncedTextRef.current === text) return;
-
     if (adoptingRef.current) {
       adoptingRef.current = false;
       syncedTextRef.current = text;
       return;
     }
+
+    // A plan we just adopted from the cloud is already the cloud's copy.
+    if (syncedTextRef.current === text) return;
 
     // The first planner this hook sees is whatever the device already had —
     // a stored plan, or the empty starting board. That is not an edit, and
@@ -144,16 +223,21 @@ export function useDegreeSync(
 
     const stamp = nextUpdatedAtMs(Date.now(), stampRef.current);
     stampRef.current = stamp;
-    writeStamp(stamp);
+    editStampRef.current = stamp;
+    const currentUid = uidRef.current;
+    const planOwner = currentUid ?? readPlanOwner();
+    if (planOwner) writeStamp(planOwner, stamp);
+    else writeUnscopedStamp(stamp);
 
-    const uid = uidRef.current;
+    const uid = currentUid;
     if (!uid) return;
 
     window.clearTimeout(pushTimerRef.current);
     pushTimerRef.current = window.setTimeout(() => {
       if (uidRef.current !== uid) return;
+      const queuedStamp = editStampRef.current ?? stampRef.current;
       setStatus(navigator.onLine ? 'syncing' : 'offline');
-      void push(uid, plannerRef.current, stampRef.current)
+      void push(uid, plannerRef.current, queuedStamp)
         .then(() => {
           if (uidRef.current !== uid) return;
           setStatus(navigator.onLine ? 'synced' : 'offline');
@@ -170,37 +254,43 @@ export function useDegreeSync(
   useEffect(() => {
     let disposed = false;
     let unsubscribeDoc: (() => void) | undefined;
+    let authSequence = 0;
 
     function stopListening() {
       unsubscribeDoc?.();
       unsubscribeDoc = undefined;
     }
 
-    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (authUser) => {
-      if (disposed) return;
-      stopListening();
-      window.clearTimeout(pushTimerRef.current);
-      uidRef.current = null;
-      syncedTextRef.current = undefined;
-      setUser(authUser);
-
-      if (!authUser) {
-        setStatus(navigator.onLine ? 'signed-out' : 'offline');
-        setMessage(undefined);
-        setLastSyncedAt(undefined);
-        return;
-      }
-
-      // No email allowlist: every verified Google account gets its own plan.
-      if (!authUser.emailVerified) {
+    async function startSession(authUser: User, sequence: number) {
+      const eligible = await hasEligibleSyncSession(authUser);
+      if (disposed || sequence !== authSequence) return;
+      if (!eligible) {
+        const reason = 'Degree syncs only verified sessions signed in with Google. Sign in again with the Google button.';
+        blockedAccountMessageRef.current = reason;
         setStatus('action-needed');
-        setMessage('Use a verified Google account to sync your plan.');
-        void firebaseSignOut(firebaseAuth);
+        setMessage(reason ?? undefined);
+        await firebaseSignOut(firebaseAuth).catch(() => undefined);
         return;
       }
 
+      setUser(authUser);
       const uid = authUser.uid;
+      const previousOwner = readPlanOwner();
+      if (accountSwitchRequiresFreshPlan(previousOwner, uid)) {
+        const fresh = createSeedPlanner();
+        adoptingRef.current = true;
+        plannerRef.current = fresh;
+        syncedTextRef.current = plannerFingerprint(fresh);
+        applyRemoteRef.current(fresh);
+      }
+      sessionRevisionRef.current = sequence;
       uidRef.current = uid;
+      const accountStamp = readStamp(uid);
+      stampRef.current = previousOwner ? accountStamp : Math.max(accountStamp, readUnscopedStamp());
+      writeStamp(uid, stampRef.current);
+      clearUnscopedStamp();
+      writePlanOwner(uid);
+      editStampRef.current = undefined;
       setStatus(navigator.onLine ? 'syncing' : 'offline');
       setMessage(undefined);
 
@@ -215,9 +305,10 @@ export function useDegreeSync(
             adoptingRef.current = true;
             syncedTextRef.current = plannerFingerprint(resolution.planner);
             stampRef.current = resolution.updatedAtMs;
-            writeStamp(resolution.updatedAtMs);
+            writeStamp(uid, resolution.updatedAtMs);
             applyRemoteRef.current(resolution.planner);
             setLastSyncedAt(resolution.updatedAtMs);
+            lastSyncedAtRef.current = resolution.updatedAtMs;
             setStatus(navigator.onLine ? 'synced' : 'offline');
             return;
           }
@@ -225,14 +316,15 @@ export function useDegreeSync(
           if (resolution.action === 'in-sync') {
             syncedTextRef.current = plannerFingerprint(resolution.planner);
             stampRef.current = Math.max(stampRef.current, resolution.updatedAtMs);
-            writeStamp(stampRef.current);
+            writeStamp(uid, stampRef.current);
             setLastSyncedAt(resolution.updatedAtMs);
+            lastSyncedAtRef.current = resolution.updatedAtMs;
             setStatus(navigator.onLine ? 'synced' : 'offline');
             return;
           }
 
           setStatus(navigator.onLine ? 'syncing' : 'offline');
-          void push(uid, resolution.planner, resolution.updatedAtMs)
+          void push(uid, resolution.planner, resolution.updatedAtMs, sequence)
             .then(() => {
               if (disposed || uidRef.current !== uid) return;
               setStatus(navigator.onLine ? 'synced' : 'offline');
@@ -250,6 +342,31 @@ export function useDegreeSync(
           setMessage(friendlyError(error));
         },
       );
+    }
+
+    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (authUser) => {
+      if (disposed) return;
+      const sequence = ++authSequence;
+      sessionRevisionRef.current = sequence;
+      stopListening();
+      window.clearTimeout(pushTimerRef.current);
+      editStampRef.current = undefined;
+      uidRef.current = null;
+      syncedTextRef.current = undefined;
+      setUser(null);
+
+      if (!authUser) {
+        const reason = blockedAccountMessageRef.current;
+        blockedAccountMessageRef.current = null;
+        setStatus(reason ? 'action-needed' : navigator.onLine ? 'signed-out' : 'offline');
+        setMessage(reason ?? undefined);
+        setLastSyncedAt(undefined);
+        lastSyncedAtRef.current = undefined;
+        return;
+      }
+
+      // No allowlist: every verified Google session gets its own plan.
+      void startSession(authUser, sequence);
     });
 
     function handleOnline() {
@@ -266,6 +383,7 @@ export function useDegreeSync(
 
     return () => {
       disposed = true;
+      authSequence += 1;
       unsubscribeAuth();
       stopListening();
       window.clearTimeout(pushTimerRef.current);
@@ -285,9 +403,11 @@ export function useDegreeSync(
     try {
       await authPersistenceReady;
       const result = await signInWithPopup(firebaseAuth, googleProvider);
-      if (!result.user.emailVerified) {
+      if (!await hasEligibleSyncSession(result.user)) {
+        const reason = 'Degree syncs only verified sessions signed in with Google. Sign in again with the Google button.';
+        blockedAccountMessageRef.current = reason;
         await firebaseSignOut(firebaseAuth);
-        throw new Error('Use a verified Google account to sync your plan.');
+        throw new Error(reason);
       }
     } catch (error) {
       setStatus('action-needed');

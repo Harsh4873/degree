@@ -3,6 +3,9 @@ import {
   DEGREE_SCHEMA_VERSION,
   decodePlanner,
   encodePlanner,
+  isVerifiedGoogleAccount,
+  applyCompletedPush,
+  accountSwitchRequiresFreshPlan,
   nextUpdatedAtMs,
   omitUndefinedDeep,
   parsePlanDocument,
@@ -10,6 +13,7 @@ import {
   resolvePlan,
   serializePlanDocument,
   stableStringify,
+  syncStampStorageKey,
   type ParsedPlan,
 } from './sync-core';
 import { createSeedPlanner, upcomingTermNames } from './catalog';
@@ -36,6 +40,56 @@ describe('stableStringify', () => {
 
   it('preserves array order', () => {
     expect(stableStringify([1, 2])).not.toBe(stableStringify([2, 1]));
+  });
+});
+
+describe('sync account requirements', () => {
+  it('uses the current token provider when available, matching Firestore rules', () => {
+    expect(isVerifiedGoogleAccount({
+      emailVerified: true,
+      email: 'owner@example.test',
+      signInProvider: 'google.com',
+    })).toBe(true);
+    expect(isVerifiedGoogleAccount({
+      emailVerified: false,
+      email: 'owner@example.test',
+      signInProvider: 'google.com',
+    })).toBe(false);
+    expect(isVerifiedGoogleAccount({
+      emailVerified: true,
+      email: 'owner@example.test',
+      signInProvider: 'password',
+    })).toBe(false);
+    expect(isVerifiedGoogleAccount({
+      emailVerified: true,
+      email: 'owner@example.test',
+      signInProvider: undefined,
+    })).toBe(false);
+    expect(isVerifiedGoogleAccount({
+      email: null,
+      emailVerified: true,
+      signInProvider: 'google.com',
+    })).toBe(false);
+  });
+});
+
+describe('account-scoped sync metadata', () => {
+  it('uses a different stamp key for every uid', () => {
+    expect(syncStampStorageKey('account-a')).not.toBe(syncStampStorageKey('account-b'));
+  });
+
+  it('resets the visible plan only when switching between known accounts', () => {
+    expect(accountSwitchRequiresFreshPlan(null, 'account-a')).toBe(false);
+    expect(accountSwitchRequiresFreshPlan('account-a', 'account-a')).toBe(false);
+    expect(accountSwitchRequiresFreshPlan('account-a', 'account-b')).toBe(true);
+  });
+
+  it('does not let a late older push roll the logical clock backwards', () => {
+    const current = { stamp: 200, syncedText: 'new', lastSyncedAt: 200 };
+    expect(applyCompletedPush(current, 100, 'old')).toEqual(current);
+    expect(applyCompletedPush(current, 300, 'latest')).toEqual({
+      stamp: 300, syncedText: 'latest', lastSyncedAt: 300,
+    });
   });
 });
 
