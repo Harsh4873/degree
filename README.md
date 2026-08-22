@@ -44,7 +44,7 @@ that contract and is covered by unit tests.
 
 `firestore.rules` holds the **entire** shared ruleset for every app in the `pickledgerpro`
 project, because deploying rules replaces the project's whole ruleset. It must stay byte-identical
-to the copies in Gym, Daymark, Slate, Fare, Notes, Research, Studies, and Radar; `notes/scripts/check-shared-rules.mjs`
+to the copies in Gym, Daymark, Slate, Fare, Goals, Notes, Radar, Recipes, and Research; `notes/scripts/check-shared-rules.mjs`
 enforces that. After changing it, deploy from the canonical copy:
 
 ```sh
