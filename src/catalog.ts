@@ -13,6 +13,10 @@ export const officialSources = [
     label: 'Engineering Online course listings',
     href: 'https://engineering.tamu.edu/engineering-online/courses.html',
   },
+  {
+    label: 'ISSS distance and full-time enrollment',
+    href: 'https://global.tamu.edu/isss/students/maintaining-status-students/index1.html',
+  },
 ] as const;
 
 export const catalogCourses: CourseTemplate[] = [
@@ -265,7 +269,22 @@ export const catalogCourses: CourseTemplate[] = [
     breadth: 'software',
     description: 'Design, implementation, and use of technical systems that support people working cooperatively.',
     prerequisiteText: 'CSCE 671 or CSCE 610 or approval of instructor.',
-    prerequisitePaths: [['CSCE 671']],
+    prerequisitePaths: [['CSCE 671'], ['CSCE 610']],
+    planningNote: 'Software breadth if passed with a B or better. Spring 2027 Howdy shows a face-to-face section only.',
+    source: 'official',
+  },
+  {
+    id: 'csce-676',
+    code: 'CSCE 676',
+    title: 'Data Mining and Analysis',
+    defaultCredits: 3,
+    minCredits: 3,
+    maxCredits: 3,
+    kind: 'csce-graded',
+    description: 'Broad overview of data mining, integrating related concepts from machine learning and statistics; exploratory data analysis, pattern mining, clustering and classification; applications to scientific and online data. Cross-listed with ECEN 758 and STAT 639.',
+    prerequisiteText: 'No course prerequisite is published in the graduate catalog.',
+    planningNote: 'Graded CSCE elective. Not a breadth course. Register the CSCE number if these hours need to count toward the 18. The ECEN 758 and STAT 639 cross-lists are outside-department numbers.',
+    deliveryChoices: ['in-person', 'web'],
     source: 'official',
   },
   {
@@ -405,6 +424,20 @@ export const catalogCourses: CourseTemplate[] = [
     prerequisiteText: 'Graduate classification; undergraduate probability and Python programming; or approval of instructor.',
     source: 'official',
   },
+  {
+    id: 'ecen-766',
+    code: 'ECEN 766',
+    title: 'Algorithms in Structural Bioinformatics',
+    defaultCredits: 3,
+    minCredits: 3,
+    maxCredits: 3,
+    kind: 'non-csce-grad',
+    description: 'Fundamental concepts, modeling techniques, and computational algorithms in structural bioinformatics for algorithm development and application; focus on algorithm perspective involving optimization and machine learning; essential for those without prior domain knowledge.',
+    prerequisiteText: 'Graduate classification; basic knowledge in algorithms and programming; no prior knowledge in biomolecules or biomolecular systems required.',
+    planningNote: 'Non-CSCE graduate elective. Counts toward the 6-hour outside cap with advisor approval. Not on the excluded list (ECEN 714 and 749 are). It does not count toward the 18 graded CSCE hours.',
+    deliveryChoices: ['in-person', 'web'],
+    source: 'official',
+  },
 ];
 
 let nextInstance = 0;
@@ -423,8 +456,76 @@ export function cloneCourse(template: CourseTemplate, credits = template.default
     ...template,
     instanceId: makeInstanceId(),
     credits,
+    delivery: template.deliveryChoices?.includes('in-person') ? 'in-person' : undefined,
   };
 }
+
+export type Spring2027Check = {
+  code: string;
+  verdict: string;
+  degreeRole: string;
+  eligibility: string;
+  sections: string;
+  assessments: string;
+  grades: string;
+  ratings: string;
+  links: readonly { label: string; href: string }[];
+};
+
+/**
+ * Spring 2027 elective check for the on-campus MSCS thesis plan.
+ * Howdy rows are the class-search snapshot reviewed 30 Sep 2026. Anex and
+ * Rate My Professors are labeled as outside the degree rules.
+ */
+export const spring2027Checks: readonly Spring2027Check[] = [
+  {
+    code: 'ECEN 766',
+    verdict: 'First choice when the spring term can hold only one elective beside CSCE 691.',
+    degreeRole: 'Non-CSCE graded graduate course. It uses the 6-hour outside-department cap and still needs advisor approval on the degree plan. It is not one of the excluded ECEN courses (714 and 749). It does not count toward the 18 graded CSCE hours. The instructor’s CSE affiliation does not change the ECEN prefix.',
+    eligibility: 'Catalog prerequisite: graduate classification, plus basic algorithms and programming. No biomolecular background is required. The Spring 2027 face-to-face section restriction is graduate level only.',
+    sections: 'Face-to-face CRN 38473, section 600, Tuesday and Thursday 9:35am to 10:50am, ETB 1003, 19 Jan 2027 to 11 May 2027, 30 seats open. Web CRN 62185, section 700, 10 seats open. Howdy marks that web section as distance and prints the F-1 warning.',
+    assessments: 'Spring 2024 syllabus (Yang Shen): homework 45%, one journal-club presentation 10%, final project 45% (proposal 10%, progress update 10%, report and presentation 25%). No exam is in those weights. The syllabus uses the word “exams” once in boilerplate and does not schedule one. The Spring 2027 Howdy syllabus link was not opened, so the new section can change this.',
+    grades: 'Anex, Shen, section 600 only: 94 graded students, combined GPA 3.90 (85 A, 9 B, no C, D, or F). Fall 2018 and Spring 2020 and Spring 2024 were 4.00. Spring 2025 was 3.81. Spring 2026 was 3.83. Anex has no section 700.',
+    ratings: 'Rate My Professors: 4.9 out of 5, 15 ratings, 100% would take again, difficulty 2.9. The visible reviews are ECEN 314 and ECEN 303, not 766.',
+    links: [
+      { label: 'Spring 2024 syllabus', href: 'https://shen-lab.github.io/ECEN766-Syllabus-SP2024-Jan16.pdf' },
+      { label: 'Graduate catalog', href: 'https://catalog.tamu.edu/graduate/course-descriptions/ecen/' },
+      { label: 'Anex', href: 'https://anex.us/grades/' },
+      { label: 'Rate My Professors', href: 'https://www.ratemyprofessors.com/professor/2260405' },
+    ],
+  },
+  {
+    code: 'CSCE 676',
+    verdict: 'Second choice. Take the face-to-face section with 766 when 8:00am Monday, Wednesday, and Friday works.',
+    degreeRole: 'Graded CSCE elective. It counts toward the 18 and is not a breadth course. Software breadth is 604, 606, 634, 655, 656, 670, 671, 672, and 713. Register CSCE 676 if these hours need to count as CSCE. ECEN 758 and STAT 639 are the same catalog course under outside-department numbers, and Anex shows those sections with other instructors.',
+    eligibility: 'The graduate catalog lists no course prerequisite. Spring 2027 face-to-face restriction: graduate classification, and not a distance-program code (distance MCS, MEN, MS, or PhD). An on-campus thesis MSCS is not one of those codes. The web section requires graduate classification and is distance for F-1 purposes.',
+    sections: 'Face-to-face CRN 58440, section 600, Monday, Wednesday, and Friday 8:00am to 8:50am, HRBB 113, 20 Jan 2027 to 10 May 2027, 100 seats open. Web CRN 59910, section 700, 19 Jan 2027 to 11 May 2027, 50 seats open. Those face-to-face times do not overlap 766 or 672. Howdy marks the web section as distance and prints the F-1 warning.',
+    assessments: 'No public Caverlee syllabus for this Spring 2027 section was found. A 24 Dec 2025 Rate My Professors review of his CSCE 676 describes exams with extra credit, medium homework with extra credit, and one group project, with attendance mandatory. Do not use the Spring 2022 STAT 639 syllabus (midterm 40%, project 60%, R): Anex lists that cross-list under other instructors, including Yang Ni.',
+    grades: 'Anex, Caverlee: 433 graded students, combined GPA 3.85. Spring 2026 face-to-face section 600 was 3.91 (67 A, 7 B). Spring 2026 web section 700 was 3.65 (32 A, 8 B, 2 C, 1 D).',
+    ratings: 'Rate My Professors: 4.7 out of 5, 12 ratings, 100% would take again, difficulty 2.7. One of those ratings is CSCE 676. The rest shown are mostly CSCE 670.',
+    links: [
+      { label: 'Graduate catalog', href: 'https://catalog.tamu.edu/graduate/course-descriptions/csce/' },
+      { label: 'Anex', href: 'https://anex.us/grades/' },
+      { label: 'Rate My Professors', href: 'https://www.ratemyprofessors.com/professor/1728542' },
+    ],
+  },
+  {
+    code: 'CSCE 672',
+    verdict: 'Eligible, and still the one to skip for a data-mining and structural-bioinformatics term.',
+    degreeRole: 'Graded CSCE, and it is a software breadth course if passed with a B or better. It fills a new breadth hole only when CSCE 671 (or another software breadth course) is not already passed with a B or better. CSCE 691 stays research either way: 3 to 6 credits count, and it is not an elective.',
+    eligibility: 'Catalog prerequisite: CSCE 671 or CSCE 610, or instructor approval. Graduate prerequisites do not block registration; preparation is still the student’s responsibility. Spring 2027 restriction: computer science, computer engineering, cybersecurity, or data science; graduate level; not a distance-program code.',
+    sections: 'Face-to-face only. CRN 58439, section 600, Tuesday and Thursday 3:55pm to 5:10pm, THOM 122, 19 Jan 2027 to 11 May 2027, 40 seats open. No web section was on the Howdy snapshot. The time does not overlap 766 or 676.',
+    assessments: 'Spring 2026 course page (Frank Shipman): homework 10%, team project 35%, reading write-ups 35%, reading presentations 10%, attendance 10%. No exam. The page says Spring 2026 will be paper discussions and a team interface project. Shipman’s own Spring 2027 teaching note still lists CSCE 672.',
+    grades: 'Anex, Shipman: 80 graded students across Fall 2016, Spring 2019, Fall 2022, and Spring 2026, all A, GPA 4.00.',
+    ratings: 'Rate My Professors: 5.0 out of 5, 4 ratings, 100% would take again, difficulty 1.5. None of the four reviews is CSCE 672. They are CSCE 445, 679, and 477.',
+    links: [
+      { label: 'Spring 2026 course page', href: 'https://people.engr.tamu.edu/shipman/courses/cpsc672/home.html' },
+      { label: 'Graduate catalog', href: 'https://catalog.tamu.edu/graduate/course-descriptions/csce/' },
+      { label: 'Anex', href: 'https://anex.us/grades/' },
+      { label: 'Rate My Professors', href: 'https://www.ratemyprofessors.com/professor/1473777' },
+    ],
+  },
+];
 
 function course(id: string, credits?: number) {
   const template = catalogCourseById(id);

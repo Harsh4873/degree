@@ -219,6 +219,46 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     }
   });
 
+  planner.terms.forEach((term) => {
+    const webCredits = sum(
+      term.courses.filter((course) => course.delivery === 'web').map((course) => course.credits),
+    );
+    if (webCredits <= 0) return;
+
+    const inPersonCredits = sum(
+      term.courses.filter((course) => course.delivery === 'in-person').map((course) => course.credits),
+    );
+    const unmarkedCredits = sum(
+      term.courses.filter((course) => course.delivery !== 'web' && course.delivery !== 'in-person').map((course) => course.credits),
+    );
+    const counted = inPersonCredits + Math.min(webCredits, 3);
+    const longSemester = /\b(spring|fall)\b/i.test(term.name) && !/\bsummer\b/i.test(term.name);
+    const unmarkedNote = unmarkedCredits > 0
+      ? ` ${unmarkedCredits} credits on this term are not marked in person or distance, so they are left out of that count.`
+      : '';
+
+    if (longSemester && counted < 9) {
+      alerts.push({
+        id: `f1-distance-${term.id}`,
+        title: `${term.name} is short of the F-1 9-hour count`,
+        detail: `This term has ${webCredits} distance credits and ${inPersonCredits} credits marked in person. ISSS counts only one distance course, up to 3 credits, toward the fall and spring full-time minimum of 9 graduate credits. That makes ${counted} hours count for F-1 status.${unmarkedNote} WEB, VIDEO, and HYBRD sections count as distance. Registrar full-time is a separate rule. Confirm with ISSS at 979-845-1824.`,
+        level: 'warning',
+      });
+      return;
+    }
+
+    alerts.push({
+      id: `f1-distance-${term.id}`,
+      title: longSemester
+        ? `${term.name} still meets the F-1 9-hour count`
+        : `${term.name} has distance credits`,
+      detail: longSemester
+        ? `This term marks ${webCredits} distance credits. Only 3 of those count toward the F-1 9-hour minimum, together with ${inPersonCredits} in-person credits (${counted} counted).${unmarkedNote} WEB, VIDEO, and HYBRD count as distance.`
+        : `This term marks ${webCredits} distance credits. ISSS still counts only one distance course, up to 3 credits, when a full-time minimum applies. Summer full-time is a separate rule.${unmarkedNote}`,
+      level: 'info',
+    });
+  });
+
   return {
     totalCredits,
     countableCredits,

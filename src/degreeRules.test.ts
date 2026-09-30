@@ -65,6 +65,109 @@ describe('evaluatePlan', () => {
     expect(evaluation.alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(false);
   });
 
+  it('counts ECEN 766 outside the department and CSCE 676 as graded CSCE with no breadth', () => {
+    const bioinformatics = catalogCourseById('ecen-766');
+    const dataMining = catalogCourseById('csce-676');
+    const collaborativeWork = catalogCourseById('csce-672');
+
+    if (!bioinformatics || !dataMining || !collaborativeWork) {
+      throw new Error('Expected catalog courses were not found');
+    }
+
+    expect(dataMining.breadth).toBeUndefined();
+    expect(dataMining.kind).toBe('csce-graded');
+    expect(bioinformatics.kind).toBe('non-csce-grad');
+    expect(collaborativeWork.breadth).toBe('software');
+    expect(cloneCourse(bioinformatics).delivery).toBe('in-person');
+
+    const planner: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'spring-2027',
+        name: 'Spring 2027',
+        courses: [cloneCourse(bioinformatics), cloneCourse(dataMining)],
+      }],
+    };
+
+    const evaluation = evaluatePlan(planner);
+    expect(evaluation.gradedCsceCredits).toBe(3);
+    expect(evaluation.requirements.find((rule) => rule.id === 'non-csce')?.value).toBe('3 planned · 3 count');
+    expect(evaluation.alerts.some((alert) => alert.id.startsWith('f1-distance-'))).toBe(false);
+  });
+
+  it('treats CSCE 610 as preparation for CSCE 672', () => {
+    const collaborativeWork = catalogCourseById('csce-672');
+    const softwareEngineering = catalogCourseById('csce-606');
+
+    if (!collaborativeWork) {
+      throw new Error('Expected catalog courses were not found');
+    }
+
+    const withPrior610: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [
+        {
+          id: 'one',
+          name: 'Fall 2026',
+          courses: [{
+            ...cloneCourse(softwareEngineering ?? collaborativeWork),
+            code: 'CSCE 610',
+            id: 'csce-610',
+            title: 'Prior preparation',
+            breadth: undefined,
+          }],
+        },
+        { id: 'two', name: 'Spring 2027', courses: [cloneCourse(collaborativeWork)] },
+      ],
+    };
+
+    expect(evaluatePlan(withPrior610).alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(false);
+  });
+
+  it('warns when two distance courses leave a spring term short of the F-1 count', () => {
+    const bioinformatics = catalogCourseById('ecen-766');
+    const dataMining = catalogCourseById('csce-676');
+    const research = catalogCourseById('csce-691');
+
+    if (!bioinformatics || !dataMining || !research) {
+      throw new Error('Expected catalog courses were not found');
+    }
+
+    const short: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'spring-2027',
+        name: 'Spring 2027',
+        courses: [
+          { ...cloneCourse(bioinformatics), delivery: 'web' },
+          { ...cloneCourse(dataMining), delivery: 'web' },
+          { ...cloneCourse(research, 3), delivery: 'in-person' },
+        ],
+      }],
+    };
+
+    const shortAlert = evaluatePlan(short).alerts.find((alert) => alert.id === 'f1-distance-spring-2027');
+    expect(shortAlert?.level).toBe('warning');
+    expect(shortAlert?.detail).toContain('6 hours count');
+
+    const enough: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'spring-2027',
+        name: 'Spring 2027',
+        courses: [
+          { ...cloneCourse(bioinformatics), delivery: 'in-person' },
+          { ...cloneCourse(dataMining), delivery: 'web' },
+          { ...cloneCourse(research, 3), delivery: 'in-person' },
+        ],
+      }],
+    };
+
+    const enoughAlert = evaluatePlan(enough).alerts.find((alert) => alert.id === 'f1-distance-spring-2027');
+    expect(enoughAlert?.level).toBe('info');
+    expect(enoughAlert?.title).toContain('still meets');
+  });
+
   it('recognizes degree-plan-excluded course codes even when entered as custom items', () => {
     const planner = createExamplePlanner();
     planner.terms[0].courses.push(

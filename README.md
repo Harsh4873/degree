@@ -6,9 +6,11 @@ An editable, local-first degree planning canvas published at `https://harsh.bet/
 
 - An empty starting board: four upcoming terms named from today's date, with no courses placed and no breadth assumptions ticked. Terms are renameable and you can add or remove them.
 - Drag-and-drop placement from a catalog-backed course bank covering every published Theory, Systems, and Software breadth option, plus custom courses and editable course credits.
-- Verified non-CSCE elective options (STAT 601/616/630, MATH 640, ECEN 649) for the six-hour outside-department slot.
+- Verified non-CSCE elective options (STAT 601/616/630, MATH 640, ECEN 649, ECEN 766) for the six-hour outside-department slot. CSCE 676 is in the graded-CSCE bank and is not a breadth course.
 - Live checks for the MSCS degree-plan minimums, breadth areas, seminar, research, directed-study, non-CSCE graduate course, and 400-level course limits.
 - Catalog prerequisite preparation alerts and a verified Fall 2026 online-course indicator. A missing indicator does **not** mean a course is unavailable.
+- A Spring 2027 check for ECEN 766, CSCE 676, and CSCE 672, from the Howdy class search reviewed 30 Sep 2026, published syllabi, and the MSCS degree page. Anex grades and Rate My Professors sit in that check and are labeled as outside the degree rules.
+- A per-section in-person or distance mark. On a fall or spring term, only 3 marked distance credits count toward the ISSS 9-hour F-1 minimum.
 - Browser-local persistence with a reset back to the empty board.
 - Optional Google sign-in that mirrors the plan across devices; the planner is fully usable signed out.
 - Light and dark themes with a header toggle; the first visit follows the system preference.

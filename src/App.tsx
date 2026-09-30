@@ -25,10 +25,10 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { catalogCourseById, catalogCourses, cloneCourse, createSeedPlanner, officialSources } from './catalog';
+import { catalogCourseById, catalogCourses, cloneCourse, createSeedPlanner, officialSources, spring2027Checks } from './catalog';
 import { evaluatePlan } from './degreeRules';
 import { useDegreeSync, type SyncStatus } from './useDegreeSync';
-import type { BreadthArea, CourseKind, CourseTemplate, PlannedCourse, Planner, Term } from './types';
+import type { BreadthArea, CourseKind, CourseTemplate, DeliveryMode, PlannedCourse, Planner, Term } from './types';
 
 const STORAGE_KEY = 'degree-canvas-tamu-mscs-v2';
 const THEME_KEY = 'degree-canvas-theme';
@@ -216,14 +216,29 @@ function PlannedCourseCard({ course, term, onDragStart, onRemove, onUpdate }: Pl
               <span>cr</span>
             </label>
           </div>
-          {(course.prerequisiteText || course.description) && (
+          {(course.prerequisiteText || course.description || course.planningNote) && (
             <details className="course-details">
               <summary>Catalog notes</summary>
               {course.description && <p>{course.description}</p>}
               {course.prerequisiteText && <p><strong>Prerequisite:</strong> {course.prerequisiteText}</p>}
+              {course.planningNote && <p>{course.planningNote}</p>}
               {term.id === 'fall-2026' && course.onlineFall2026 && (
                 <p className="course-details__fit">Listed by TAMU Engineering Online for Fall 2026.</p>
               )}
+              <label className="delivery-control">
+                Section for the F-1 count
+                <select
+                  value={course.delivery ?? ''}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    onUpdate({ delivery: value === '' ? undefined : value as DeliveryMode });
+                  }}
+                >
+                  <option value="">Not marked</option>
+                  <option value="in-person">In person</option>
+                  <option value="web">Distance (WEB, VIDEO, or HYBRD)</option>
+                </select>
+              </label>
             </details>
           )}
         </>
@@ -365,7 +380,7 @@ export default function App() {
     }
 
     return catalogCourses.filter((course) =>
-      [course.code, course.title, course.description, course.breadth, kindLabels[course.kind]]
+      [course.code, course.title, course.description, course.planningNote, course.breadth, kindLabels[course.kind]]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -581,7 +596,12 @@ export default function App() {
               <LogOut size={15} />Sign out
             </button>
           ) : (
-            <button className="header-reset" type="button" onClick={() => void sync.signIn()}>
+            <button
+              className="header-reset"
+              type="button"
+              onClick={() => void sync.signIn()}
+              title="Sign in with either approved Google account. Both sync the same private plan."
+            >
               <LogIn size={15} />Sign in
             </button>
           )}
@@ -764,10 +784,40 @@ export default function App() {
 
             <div className="board-footnote">
               <Info size={16} />
-              <p><strong>Term fit is intentionally conservative:</strong> a Fall 2026 badge means TAMU Engineering Online listed the course for that exact term. No badge is not an availability prediction; verify future offerings in Howdy.</p>
+              <p><strong>Term fit is intentionally conservative:</strong> a Fall 2026 badge means TAMU Engineering Online listed the course for that exact term. No badge is not an availability prediction; verify future offerings in Howdy. Mark a placed section in person or distance so the F-1 count can see it. ISSS counts only 3 distance credits toward the 9-hour fall and spring minimum.</p>
             </div>
           </section>
         </div>
+
+        <section className="course-library elective-check" aria-labelledby="elective-check-heading">
+          <header className="library-header">
+            <div>
+              <p className="section-kicker">Spring 2027 · Howdy snapshot 30 Sep 2026</p>
+              <h2 id="elective-check-heading">766, 676, and 672</h2>
+              <p>Place ECEN 766 and CSCE 676 on the board if both fit. Keep CSCE 691 as research. Skip CSCE 672 unless software breadth is still open. Face-to-face 766 (Tue/Thu morning) and face-to-face 676 (Mon/Wed/Fri 8:00am) do not overlap. If the term can hold only one elective beside research, take 766: Anex shows it almost only in spring, while 676 has also run in fall.</p>
+            </div>
+          </header>
+          <p className="elective-rule">F-1 and J-1: ISSS counts one distance course, up to 3 credits, toward the fall and spring full-time minimum of 9 graduate credits. WEB, VIDEO, and HYBRD count as distance. Two 3-credit web sections plus 3 in-person credits count as 6, not 9. To take two web courses and stay full-time, the ISSS example uses 6 additional in-person credits (12 total). A final term that is not full-time still needs at least one face-to-face course, and a CPT course cannot itself be distance. Registrar full-time is not the immigration count. This is the published rule, not a status determination. ISSS: 979-845-1824.</p>
+          <div className="elective-grid">
+            {spring2027Checks.map((check) => (
+              <article key={check.code} className="catalog-course elective-card">
+                <div className="catalog-course__topline"><span className="course-code">{check.code}</span></div>
+                <h3>{check.verdict}</h3>
+                <p><strong>Degree plan.</strong> {check.degreeRole}</p>
+                <p><strong>Eligibility.</strong> {check.eligibility}</p>
+                <p><strong>Spring 2027 sections.</strong> {check.sections}</p>
+                <p><strong>Exams and work.</strong> {check.assessments}</p>
+                <p><strong>Anex, not a degree rule.</strong> {check.grades}</p>
+                <p><strong>Rate My Professors, not a degree rule.</strong> {check.ratings}</p>
+                <div className="elective-links">
+                  {check.links.map((link) => (
+                    <a key={link.href} href={link.href} target="_blank" rel="noreferrer">{link.label}<ExternalLink size={12} /></a>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         <section className="course-library" aria-labelledby="course-library-heading">
           <header className="library-header">
@@ -807,7 +857,9 @@ export default function App() {
                 <CourseTags course={course} />
                 {course.description && <p>{course.description}</p>}
                 {course.prerequisiteText && <p className="catalog-course__prerequisite"><strong>Catalog:</strong> {course.prerequisiteText}</p>}
+                {course.planningNote && <p className="catalog-course__prerequisite">{course.planningNote}</p>}
                 {course.onlineFall2026 && <span className="availability-badge">Fall 2026 online listing</span>}
+                {course.deliveryChoices?.includes('web') && <span className="availability-badge">Spring 2027 face-to-face and web</span>}
                 <button className="outline-button catalog-course__add" type="button" onClick={() => addCatalogCourse(course.id)}><Plus size={15} />Add to plan</button>
               </article>
             ))}

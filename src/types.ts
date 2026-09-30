@@ -1,5 +1,8 @@
 export type BreadthArea = 'theory' | 'systems' | 'software';
 
+/** ISSS treats WEB, VIDEO, and HYBRD as distance. Unset means the section is not marked. */
+export type DeliveryMode = 'in-person' | 'web';
+
 export type CourseKind =
   | 'csce-graded'
   | 'seminar'
@@ -22,12 +25,17 @@ export type CourseTemplate = {
   prerequisiteText?: string;
   prerequisitePaths?: string[][];
   onlineFall2026?: boolean;
+  /** Short planning note shown on the course card. Degree-rule text stays in `degreeRules`. */
+  planningNote?: string;
+  /** Sections the student can mark for the F-1 distance count. */
+  deliveryChoices?: DeliveryMode[];
   source: 'official' | 'custom';
 };
 
 export type PlannedCourse = CourseTemplate & {
   instanceId: string;
   credits: number;
+  delivery?: DeliveryMode;
 };
 
 export type Term = {

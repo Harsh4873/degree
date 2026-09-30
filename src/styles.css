@@ -1136,6 +1136,66 @@ main {
   font-weight: 780;
 }
 
+.elective-rule {
+  margin: 0 0 0.9rem;
+  color: #6d5848;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.elective-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.72rem;
+}
+
+.elective-card {
+  min-height: 0;
+}
+
+.elective-card h3 {
+  min-height: 0;
+  font-size: 0.92rem;
+}
+
+.elective-card > p {
+  font-size: 0.72rem;
+}
+
+.elective-card strong {
+  color: #5c4636;
+}
+
+.elective-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  margin-top: 0.7rem;
+}
+
+.elective-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: #8a5424;
+  font-size: 0.68rem;
+  font-weight: 720;
+}
+
+.delivery-control {
+  display: grid;
+  gap: 0.28rem;
+  margin-top: 0.45rem;
+  color: #6d5848;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.delivery-control select {
+  width: 100%;
+  font-weight: 600;
+}
+
 .outline-button {
   align-self: flex-start;
   padding: 0.5rem 0.64rem;
@@ -1437,7 +1497,8 @@ main {
   }
 
   .requirement-list,
-  .guidance__grid {
+  .guidance__grid,
+  .elective-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1928,6 +1989,19 @@ main {
   background: #1e3324;
 }
 
+:root[data-theme='dark'] .elective-rule,
+:root[data-theme='dark'] .delivery-control {
+  color: #b5a38f;
+}
+
+:root[data-theme='dark'] .elective-card strong {
+  color: #e2d5c1;
+}
+
+:root[data-theme='dark'] .elective-links a {
+  color: #e0b56a;
+}
+
 :root[data-theme='dark'] .outline-button {
   border-color: #57462f;
   color: #dcae6c;
@@ -2120,4 +2194,10 @@ main {
 
 :root[data-theme='dark'] .panel-progress > span {
   color: #93826f;
+}
+
+@media (max-width: 1100px) {
+  .elective-grid {
+    grid-template-columns: 1fr;
+  }
 }

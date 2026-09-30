@@ -88,7 +88,7 @@ export async function resolveOwnerVault(
   const membership = snapshot.exists() ? parseOwnerVaultMembership(snapshot.data()) : null;
   if (!membership) {
     throw new OwnerVaultAccessError(
-      'This Google account is not a member of the private harsh.bet owner vault.',
+      'This Google account is not on the private owner vault yet. The other approved Google account still syncs the same plan.',
     );
   }
   return membership;
