@@ -52,27 +52,28 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     term.courses.map((course) => ({ course, term, termIndex })),
   );
   const totalCredits = sum(allCourses.map(({ course }) => course.credits));
+  const eligibleCourses = allCourses.filter(({ course }) => !excludedCodes.has(canonicalCode(course.code)));
   const gradedCsceCredits = sum(
-    allCourses
+    eligibleCourses
       .filter(({ course }) => course.kind === 'csce-graded')
       .map(({ course }) => course.credits),
   );
   const seminarCredits = sum(
-    allCourses.filter(({ course }) => course.kind === 'seminar').map(({ course }) => course.credits),
+    eligibleCourses.filter(({ course }) => course.kind === 'seminar').map(({ course }) => course.credits),
   );
   const researchCredits = sum(
-    allCourses.filter(({ course }) => course.kind === 'research').map(({ course }) => course.credits),
+    eligibleCourses.filter(({ course }) => course.kind === 'research').map(({ course }) => course.credits),
   );
   const directedStudyCredits = sum(
-    allCourses.filter(({ course }) => course.kind === 'directed-study').map(({ course }) => course.credits),
+    eligibleCourses.filter(({ course }) => course.kind === 'directed-study').map(({ course }) => course.credits),
   );
   const nonCsceCredits = sum(
-    allCourses.filter(({ course }) => course.kind === 'non-csce-grad').map(({ course }) => course.credits),
+    eligibleCourses.filter(({ course }) => course.kind === 'non-csce-grad').map(({ course }) => course.credits),
   );
-  const undergradCsce = allCourses.filter(({ course }) => course.kind === 'csce-400');
+  const undergradCsce = eligibleCourses.filter(({ course }) => course.kind === 'csce-400');
   const undergradCsceCredits = sum(undergradCsce.map(({ course }) => course.credits));
   const otherCredits = sum(
-    allCourses.filter(({ course }) => course.kind === 'other').map(({ course }) => course.credits),
+    eligibleCourses.filter(({ course }) => course.kind === 'other').map(({ course }) => course.credits),
   );
 
   const seminarCountable = Math.min(seminarCredits, 1);
@@ -105,7 +106,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
       explanation: 'CSCE 681, 684, 685, and 691 do not count toward this 18-credit minimum.',
     },
     ...(['theory', 'systems', 'software'] as BreadthArea[]).map((area): RequirementCheck => {
-      const matching = allCourses.filter(({ course }) => course.breadth === area).length;
+      const matching = eligibleCourses.filter(({ course }) => course.breadth === area).length;
       const isComplete = planner.completedBreadth[area] || matching > 0;
 
       return {

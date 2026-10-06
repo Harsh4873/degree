@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { catalogCourseById, cloneCourse } from './catalog';
 import { createExamplePlanner } from './examplePlan';
 import { evaluatePlan } from './degreeRules';
-import type { Planner } from './types';
+import type { CourseKind, Planner } from './types';
 
 describe('evaluatePlan', () => {
   it('counts capped research toward the 30-hour plan without limiting enrollment', () => {
@@ -197,6 +197,50 @@ describe('evaluatePlan', () => {
 
     expect(evaluation.alerts.some((alert) => alert.id === 'excluded-custom-excluded')).toBe(true);
     expect(evaluation.alerts.some((alert) => alert.id === 'excluded-custom-excluded-481')).toBe(true);
+    expect(evaluation.totalCredits).toBe(53);
+    expect(evaluation.countableCredits).toBe(31);
+  });
+
+  it.each<[string, CourseKind]>([
+    [' csce   601 ', 'csce-graded'],
+    ['CSCE 602', 'seminar'],
+    ['CSCE 603', 'research'],
+    ['CSCE 701', 'directed-study'],
+    ['ECEN 714', 'non-csce-grad'],
+    ['CSCE 481', 'csce-400'],
+    ['CYBR 601', 'other'],
+  ])('does not count excluded %s even when classified as %s', (code, kind) => {
+    const planner: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Term one', courses: [{
+        instanceId: 'excluded', id: 'excluded', code, title: 'Custom course',
+        defaultCredits: 3, credits: 3, kind, breadth: 'theory', source: 'custom',
+      }] }],
+    };
+    const result = evaluatePlan(planner);
+    expect(result.totalCredits).toBe(3);
+    expect(result.countableCredits).toBe(0);
+    expect(result.gradedCsceCredits).toBe(0);
+    expect(result.researchCredits).toBe(0);
+    expect(result.directedStudyCredits).toBe(0);
+    expect(result.requirements.find(rule => rule.id === 'breadth-theory')?.status).toBe('pending');
+    expect(result.alerts.some(alert => alert.id === 'excluded-excluded')).toBe(true);
+  });
+
+  it('keeps excluded enrollment from completing an otherwise short plan', () => {
+    const planner = createExamplePlanner();
+    planner.completedBreadth.theory = false;
+    planner.terms.forEach(term => {
+      term.courses = term.courses.map(course => course.kind === 'csce-graded'
+        ? { ...course, code: 'CSCE 601' }
+        : course);
+    });
+    const result = evaluatePlan(planner);
+    expect(result.totalCredits).toBe(49);
+    expect(result.gradedCsceCredits).toBe(0);
+    expect(result.requirements.find(rule => rule.id === 'graded-csce')?.status).toBe('pending');
+    expect(result.requirements.find(rule => rule.id === 'total-hours')?.status).toBe('pending');
+    expect(result.requirements.find(rule => rule.id === 'breadth-theory')?.status).toBe('pending');
   });
 
   it('counts non-CSCE electives toward the six-hour cap', () => {
