@@ -833,7 +833,8 @@ main {
   background: #f6e9ce;
 }
 
-.tag--seminar {
+.tag--seminar,
+.tag--internship {
   color: #5c6171;
   background: #e8e9ef;
 }
@@ -1858,7 +1859,8 @@ main {
   background: #3a2d14;
 }
 
-:root[data-theme='dark'] .tag--seminar {
+:root[data-theme='dark'] .tag--seminar,
+:root[data-theme='dark'] .tag--internship {
   color: #b9bfd4;
   background: #272a35;
 }

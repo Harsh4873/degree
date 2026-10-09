@@ -52,6 +52,7 @@ const kindLabels: Record<CourseKind, string> = {
   seminar: 'Seminar',
   research: 'Research',
   'directed-study': 'Directed study',
+  internship: 'Internship (CPT)',
   'non-csce-grad': 'Non-CSCE grad',
   'csce-400': 'CSCE 400-level',
   other: 'Custom item',

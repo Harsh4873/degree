@@ -30,6 +30,9 @@ const breadthLabels: Record<BreadthArea, string> = {
 
 const canonicalCode = (code: string) => code.trim().toUpperCase().replace(/\s+/g, ' ');
 
+/** True for courses the MSCS department says cannot be used on any degree plan. */
+export const isExcludedCode = (code: string) => excludedCodes.has(canonicalCode(code));
+
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
 const atLeastStatus = (value: number, target: number): RequirementStatus =>

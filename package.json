@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "catalog:generate": "node scripts/generate-csce-catalog.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude tests/firestore.rules.test.ts",
     "test:rules": "firebase emulators:exec --project demo-degree --only firestore \"vitest run tests/firestore.rules.test.ts --testTimeout=60000\"",

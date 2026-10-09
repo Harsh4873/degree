@@ -5,7 +5,7 @@ An editable, local-first degree planning canvas published at `https://harsh.bet/
 ## What it models
 
 - An empty starting board: four upcoming terms named from today's date, with no courses placed and no breadth assumptions ticked. Terms are renameable and you can add or remove them.
-- Drag-and-drop placement from a catalog-backed course bank covering every published Theory, Systems, and Software breadth option, plus custom courses and editable course credits.
+- Drag-and-drop placement from a course bank holding every 600- and 700-level CSCE course in the graduate catalog, tagged with the published Theory, Systems, and Software breadth sets, plus custom courses and editable course credits.
 - Verified non-CSCE elective options (STAT 601/616/630, MATH 640, ECEN 649, ECEN 766) for the six-hour outside-department slot. CSCE 676 is in the graded-CSCE bank and is not a breadth course.
 - Live checks for the MSCS degree-plan minimums, breadth areas, seminar, research, directed-study, non-CSCE graduate course, and 400-level course limits.
 - Catalog prerequisite preparation alerts and a verified Fall 2026 online-course indicator. A missing indicator does **not** mean a course is unavailable.
@@ -52,6 +52,15 @@ enforces that. After changing it, deploy from the canonical copy:
 ```sh
 firebase deploy --only firestore:rules --project pickledgerpro
 ```
+
+## Course bank
+
+`src/generated/csceCatalog.ts` is generated from the CSCE graduate catalog page by
+`npm run catalog:generate` (pass a saved HTML file as an argument to parse it offline) and is
+committed, so the app never fetches the catalog at runtime. `src/catalogOverrides.ts` is the
+hand-kept layer: breadth sets, course kinds for 681/684/685/691, planning notes, the hand-checked
+entries for courses already on saved plans, and the non-CSCE options. Course ids (`csce-604`) are
+stable because saved plans look courses up by id.
 
 ## Development
 

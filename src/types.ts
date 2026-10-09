@@ -8,6 +8,7 @@ export type CourseKind =
   | 'seminar'
   | 'research'
   | 'directed-study'
+  | 'internship'
   | 'non-csce-grad'
   | 'csce-400'
   | 'other';
