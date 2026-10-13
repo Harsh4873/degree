@@ -35,6 +35,8 @@ export interface DegreeSync {
   lastSyncedAt?: number;
   /** True until the existing shared-vault planner has been validated and adopted. */
   isHydrating: boolean;
+  /** Firebase has a user, but the vault did not open. Sign in retries; Sign out still works. */
+  sessionBlocked: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -151,6 +153,7 @@ export function useDegreeSync(
   const [message, setMessage] = useState<string | undefined>(undefined);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | undefined>(undefined);
   const [isHydrating, setIsHydrating] = useState(false);
+  const [sessionBlocked, setSessionBlocked] = useState(false);
 
   const plannerRef = useRef(planner);
   const stampRef = useRef(0);
@@ -167,13 +170,24 @@ export function useDegreeSync(
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const lastSyncedAtRef = useRef<number | undefined>(undefined);
   const hydratingRef = useRef(false);
+  const failedPushRef = useRef<{ uid: string; updatedAtMs: number } | null>(null);
+  const pushPendingRef = useRef(false);
+  const retrySessionRef = useRef<(() => void) | null>(null);
+  const statusRef = useRef<SyncStatus>('signed-out');
 
   applyRemoteRef.current = applyRemotePlanner;
+  statusRef.current = status;
   plannerRef.current = planner;
 
   if (!clientIdRef.current && typeof window !== 'undefined') {
     clientIdRef.current = readClientId();
   }
+
+  const cancelPushTimer = useCallback(() => {
+    window.clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = undefined;
+    pushPendingRef.current = false;
+  }, []);
 
   const push = useCallback((uid: string, next: Planner, updatedAtMs: number, revision = sessionRevisionRef.current) => {
     const completedText = plannerFingerprint(next);
@@ -241,24 +255,28 @@ export function useDegreeSync(
     const uid = currentUid;
     if (!uid) return;
 
-    window.clearTimeout(pushTimerRef.current);
+    cancelPushTimer();
+    pushPendingRef.current = true;
     pushTimerRef.current = window.setTimeout(() => {
+      pushPendingRef.current = false;
       if (uidRef.current !== uid) return;
       const queuedStamp = editStampRef.current ?? stampRef.current;
       setStatus(navigator.onLine ? 'syncing' : 'offline');
       void push(uid, plannerRef.current, queuedStamp)
         .then(() => {
           if (uidRef.current !== uid) return;
+          failedPushRef.current = null;
           setStatus(navigator.onLine ? 'synced' : 'offline');
           setMessage(undefined);
         })
         .catch((error) => {
           if (uidRef.current !== uid) return;
+          failedPushRef.current = { uid, updatedAtMs: queuedStamp };
           setStatus('action-needed');
           setMessage(friendlyError(error));
         });
     }, PUSH_DEBOUNCE_MS);
-  }, [planner, push]);
+  }, [planner, push, cancelPushTimer]);
 
   useEffect(() => {
     let disposed = false;
@@ -289,12 +307,14 @@ export function useDegreeSync(
         if (disposed || sequence !== authSequence) return;
         const reason = error instanceof Error ? error.message : 'This account cannot access the shared owner vault.';
         blockedAccountMessageRef.current = reason;
+        setSessionBlocked(true);
         setStatus('action-needed');
         setMessage(reason);
         return;
       }
       if (disposed || sequence !== authSequence) return;
 
+      setSessionBlocked(false);
       setUser(authUser);
       const uid = membership.vaultId;
       sessionRevisionRef.current = sequence;
@@ -325,6 +345,7 @@ export function useDegreeSync(
           // always wins over this browser's possibly empty or stale board.
           if (hydratingRef.current) {
             adoptingRef.current = true;
+            failedPushRef.current = null;
             syncedTextRef.current = plannerFingerprint(remote.planner);
             stampRef.current = remote.updatedAtMs;
             writeStamp(uid, remote.updatedAtMs);
@@ -343,6 +364,7 @@ export function useDegreeSync(
 
           if (resolution.action === 'adopt-remote') {
             adoptingRef.current = true;
+            failedPushRef.current = null;
             syncedTextRef.current = plannerFingerprint(resolution.planner);
             stampRef.current = resolution.updatedAtMs;
             writeStamp(uid, resolution.updatedAtMs);
@@ -367,11 +389,13 @@ export function useDegreeSync(
           void push(uid, resolution.planner, resolution.updatedAtMs, sequence)
             .then(() => {
               if (disposed || uidRef.current !== uid) return;
+              failedPushRef.current = null;
               setStatus(navigator.onLine ? 'synced' : 'offline');
               setMessage(undefined);
             })
             .catch((error) => {
               if (disposed || uidRef.current !== uid) return;
+              failedPushRef.current = { uid, updatedAtMs: resolution.updatedAtMs };
               setStatus('action-needed');
               setMessage(friendlyError(error));
             });
@@ -389,7 +413,7 @@ export function useDegreeSync(
       const sequence = ++authSequence;
       sessionRevisionRef.current = sequence;
       stopListening();
-      window.clearTimeout(pushTimerRef.current);
+      cancelPushTimer();
       editStampRef.current = undefined;
       uidRef.current = null;
       hydratingRef.current = false;
@@ -400,6 +424,7 @@ export function useDegreeSync(
       if (!authUser) {
         const reason = blockedAccountMessageRef.current;
         blockedAccountMessageRef.current = null;
+        setSessionBlocked(false);
         setStatus(reason ? 'action-needed' : navigator.onLine ? 'signed-out' : 'offline');
         setMessage(reason ?? undefined);
         setLastSyncedAt(undefined);
@@ -410,12 +435,66 @@ export function useDegreeSync(
       void startSession(authUser, sequence);
     });
 
+    retrySessionRef.current = () => {
+      if (disposed) return;
+      const current = firebaseAuth.currentUser;
+      if (!current) return;
+      const sequence = ++authSequence;
+      sessionRevisionRef.current = sequence;
+      stopListening();
+      cancelPushTimer();
+      editStampRef.current = undefined;
+      uidRef.current = null;
+      hydratingRef.current = false;
+      setIsHydrating(false);
+      setUser(null);
+      void startSession(current, sequence);
+    };
+
+    function retryFailedPush() {
+      const uid = uidRef.current;
+      const failed = failedPushRef.current;
+      if (!uid || !failed || failed.uid !== uid || pushPendingRef.current) return;
+      const updatedAtMs = Math.max(failed.updatedAtMs, stampRef.current);
+      setStatus('syncing');
+      void push(uid, plannerRef.current, updatedAtMs)
+        .then(() => {
+          if (uidRef.current !== uid) return;
+          failedPushRef.current = null;
+          setStatus(navigator.onLine ? 'synced' : 'offline');
+          setMessage(undefined);
+        })
+        .catch((error) => {
+          if (uidRef.current !== uid) return;
+          failedPushRef.current = { uid, updatedAtMs };
+          setStatus('action-needed');
+          setMessage(friendlyError(error));
+        });
+    }
+
     function handleOnline() {
-      if (uidRef.current) setStatus('syncing');
-      else setStatus('signed-out');
+      if (hydratingRef.current) {
+        if (statusRef.current !== 'action-needed') {
+          setStatus(uidRef.current ? 'syncing' : 'signed-out');
+        }
+        return;
+      }
+      if (failedPushRef.current && failedPushRef.current.uid === uidRef.current) {
+        retryFailedPush();
+        return;
+      }
+      if (statusRef.current === 'action-needed') return;
+      if (!uidRef.current) {
+        if (statusRef.current === 'offline') setStatus('signed-out');
+        return;
+      }
+      if (statusRef.current === 'offline') {
+        setStatus(pushPendingRef.current ? 'syncing' : 'synced');
+      }
     }
 
     function handleOffline() {
+      if (statusRef.current === 'action-needed') return;
       setStatus('offline');
     }
 
@@ -427,11 +506,12 @@ export function useDegreeSync(
       authSequence += 1;
       unsubscribeAuth();
       stopListening();
-      window.clearTimeout(pushTimerRef.current);
+      cancelPushTimer();
+      retrySessionRef.current = null;
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [push]);
+  }, [push, cancelPushTimer]);
 
   const signIn = useCallback(async () => {
     if (!navigator.onLine) {
@@ -443,6 +523,11 @@ export function useDegreeSync(
     setMessage(undefined);
     try {
       await authPersistenceReady;
+      if (firebaseAuth.currentUser && retrySessionRef.current) {
+        blockedAccountMessageRef.current = null;
+        retrySessionRef.current();
+        return;
+      }
       const result = await signInWithPopup(firebaseAuth, googleProvider);
       if (!await hasEligibleSyncSession(result.user)) {
         const reason = 'Degree syncs only verified sessions signed in with Google. Sign in again with the Google button.';
@@ -457,11 +542,23 @@ export function useDegreeSync(
   }, []);
 
   const signOut = useCallback(async () => {
-    if (!uidRef.current) return;
+    if (!uidRef.current) {
+      if (!firebaseAuth.currentUser) return;
+      setStatus('syncing');
+      setMessage(undefined);
+      try {
+        await firebaseSignOut(firebaseAuth);
+        setSessionBlocked(false);
+      } catch (error) {
+        setStatus('action-needed');
+        setMessage(friendlyError(error));
+      }
+      return;
+    }
     setStatus('syncing');
     setMessage('Finishing pending changes…');
     try {
-      window.clearTimeout(pushTimerRef.current);
+      cancelPushTimer();
       if (navigator.onLine) await waitForPendingWrites(degreeFirestore);
       await firebaseSignOut(firebaseAuth);
       // The plan stays on this device — Degree Canvas works signed out, and
@@ -471,7 +568,7 @@ export function useDegreeSync(
       setStatus('action-needed');
       setMessage(friendlyError(error));
     }
-  }, []);
+  }, [cancelPushTimer]);
 
-  return { status, user, message, lastSyncedAt, isHydrating, signIn, signOut };
+  return { status, user, message, lastSyncedAt, isHydrating, sessionBlocked, signIn, signOut };
 }

@@ -19,6 +19,11 @@
           storedTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         document.documentElement.dataset.theme = storedTheme;
+        var themeColor = storedTheme === 'dark' ? '#171310' : '#f7f3eb';
+        document.querySelectorAll('meta[name="theme-color"]').forEach(function (node) {
+          node.setAttribute('content', themeColor);
+          node.removeAttribute('media');
+        });
       } catch (error) {}
     </script>
   </head>

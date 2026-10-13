@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { catalogCourseById, cloneCourse } from './catalog';
+import { catalogCourseById, cloneCourse, createSeedPlanner } from './catalog';
 import { createExamplePlanner } from './examplePlan';
 import { evaluatePlan } from './degreeRules';
 import type { CourseKind, Planner } from './types';
@@ -259,5 +259,115 @@ describe('evaluatePlan', () => {
 
     expect(evaluation.requirements.find((rule) => rule.id === 'non-csce')?.value).toBe('3 planned · 3 count');
     expect(evaluation.countableCredits).toBe(3);
+  });
+
+  it('caps a graded course at its catalog maximum and ignores a second 400-level course', () => {
+    const graded: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Term one', courses: [{
+        instanceId: 'graded', id: 'graded', code: 'CSCE 606', title: 'Software Engineering',
+        defaultCredits: 3, minCredits: 3, maxCredits: 3, credits: 30,
+        kind: 'csce-graded', source: 'custom',
+      }] }],
+    };
+    const gradedResult = evaluatePlan(graded);
+    expect(gradedResult.gradedCsceCredits).toBe(3);
+    expect(gradedResult.countableCredits).toBe(3);
+    expect(gradedResult.totalCredits).toBe(30);
+
+    const undergrad = (instanceId: string) => ({
+      instanceId, id: instanceId, code: `CSCE 41${instanceId}`, title: 'Undergraduate elective',
+      defaultCredits: 3, credits: 3, kind: 'csce-400' as const, source: 'custom' as const,
+    });
+    const two: Planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Term one', courses: [undergrad('0'), undergrad('1')] }],
+    };
+    expect(evaluatePlan(two).countableCredits).toBe(0);
+    expect(evaluatePlan(two).requirements.find((rule) => rule.id === 'csce-400')?.status).toBe('warning');
+    expect(evaluatePlan({ ...two, terms: [{ id: 'one', name: 'Term one', courses: [undergrad('0')] }] }).countableCredits).toBe(3);
+  });
+
+  it('treats CSCE 431 or CSCE 606 as preparation for CSCE 713', () => {
+    const security = catalogCourseById('csce-713');
+    if (!security) throw new Error('Expected catalog course was not found');
+
+    const prior = (code: string) => ({
+      ...cloneCourse(security),
+      code,
+      id: code.toLowerCase().replace(/\s+/g, '-'),
+      title: 'Prior preparation',
+      breadth: undefined,
+      prerequisiteText: undefined,
+      prerequisitePaths: undefined,
+    });
+    const placed = (code: string | undefined): Planner => ({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [
+        { id: 'one', name: 'Fall 2026', courses: code ? [prior(code)] : [] },
+        { id: 'two', name: 'Spring 2027', courses: [cloneCourse(security)] },
+      ],
+    });
+
+    expect(evaluatePlan(placed('CSCE 431')).alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(false);
+    expect(evaluatePlan(placed('CSCE 606')).alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(false);
+    expect(evaluatePlan(placed(undefined)).alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(true);
+  });
+
+  it('uses the prior-completion sentence for every breadth area that is checked', () => {
+    const planner = createExamplePlanner();
+    const systems = evaluatePlan(planner).requirements.find((rule) => rule.id === 'breadth-systems');
+    expect(systems?.explanation).toContain('Marked complete from prior coursework');
+    expect(evaluatePlan(planner).alerts.find((alert) => alert.id === 'systems-assumption')?.detail).toContain('The box is checked');
+
+    planner.completedBreadth.systems = false;
+    planner.completedBreadth.theory = true;
+    const theory = evaluatePlan(planner).requirements.find((rule) => rule.id === 'breadth-theory');
+    expect(theory?.explanation).toContain('Marked complete from prior coursework');
+    expect(theory?.status).toBe('complete');
+  });
+
+  it('does not claim a breadth course is on the board when none is placed', () => {
+    const evaluation = evaluatePlan(createSeedPlanner());
+    for (const area of ['theory', 'systems', 'software'] as const) {
+      const explanation = evaluation.requirements.find((rule) => rule.id === `breadth-${area}`)?.explanation ?? '';
+      expect(explanation).toContain('cannot see the grade');
+      expect(explanation).not.toContain('can see a matching course');
+    }
+
+    const theory = catalogCourseById('csce-627');
+    if (!theory) throw new Error('Expected catalog course was not found');
+    const placed = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [cloneCourse(theory)] }],
+    });
+    expect(placed.requirements.find((rule) => rule.id === 'breadth-theory')?.explanation).toContain('can see a matching course');
+  });
+
+  it('does not throw when a saved course is null or has a non-list prerequisite', () => {
+    const planner = {
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'one',
+        name: 'Fall 2026',
+        courses: [
+          null,
+          {
+            instanceId: 'bad-path',
+            id: 'bad-path',
+            code: 'CSCE 606',
+            title: 'Software Engineering',
+            defaultCredits: 3,
+            credits: 3,
+            kind: 'csce-graded',
+            source: 'custom',
+            prerequisiteText: 'CSCE 431',
+            prerequisitePaths: 'CSCE 431',
+          },
+        ],
+      }],
+    } as unknown as Planner;
+    expect(() => evaluatePlan(planner)).not.toThrow();
+    expect(evaluatePlan(planner).gradedCsceCredits).toBe(3);
   });
 });

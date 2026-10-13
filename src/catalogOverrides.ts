@@ -380,7 +380,7 @@ export const handKeptCourses: CourseTemplate[] = [
     breadth: 'software',
     description: 'Secure software design and implementation, code review with static and dynamic analysis, risk analysis, and security testing.',
     prerequisiteText: 'CSCE 431 or CSCE 606 or approval of instructor; graduate classification.',
-    prerequisitePaths: [['CSCE 606']],
+    prerequisitePaths: [['CSCE 431'], ['CSCE 606']],
     source: 'official',
   },
   {

@@ -30,7 +30,7 @@ import { evaluatePlan } from './degreeRules';
 import { useDegreeSync, type SyncStatus } from './useDegreeSync';
 import type { BreadthArea, CourseKind, CourseTemplate, DeliveryMode, PlannedCourse, Planner, Term } from './types';
 
-const STORAGE_KEY = 'degree-canvas-tamu-mscs-v2';
+export const PLANNER_STORAGE_KEY = 'degree-canvas-tamu-mscs-v2';
 const THEME_KEY = 'degree-canvas-theme';
 
 type Theme = 'light' | 'dark';
@@ -83,17 +83,51 @@ const syncPresentation: Record<SyncStatus, { icon: typeof Cloud; label: string; 
   'action-needed': { icon: TriangleAlert, label: 'Sync paused', hint: 'Sync needs attention.' },
 };
 
-const sumCredits = (courses: PlannedCourse[]) =>
-  courses.reduce((total, course) => total + course.credits, 0);
+const sumCredits = (courses: PlannedCourse[] | undefined) =>
+  (courses ?? []).reduce((total, course) => total + (Number.isFinite(course?.credits) ? course.credits : 0), 0);
 
-function isPlanner(candidate: unknown): candidate is Planner {
-  if (!candidate || typeof candidate !== 'object') {
-    return false;
+const courseKinds = new Set<string>(Object.keys(kindLabels));
+
+function sanitizePlanner(candidate: unknown): Planner | undefined {
+  if (!candidate || typeof candidate !== 'object') return undefined;
+  const value = candidate as Partial<Planner>;
+  if (!Array.isArray(value.terms) || !value.completedBreadth || typeof value.completedBreadth !== 'object') {
+    return undefined;
   }
 
-  const value = candidate as Partial<Planner>;
+  const breadth = value.completedBreadth as Partial<Planner['completedBreadth']>;
+  const completedBreadth = {
+    theory: Boolean(breadth.theory),
+    systems: Boolean(breadth.systems),
+    software: Boolean(breadth.software),
+  };
+  const terms: Term[] = [];
 
-  return Array.isArray(value.terms) && Boolean(value.completedBreadth);
+  for (const term of value.terms) {
+    if (!term || typeof term !== 'object') continue;
+    const item = term as Partial<Term>;
+    if (typeof item.id !== 'string') continue;
+    const rawCourses = Array.isArray(item.courses) ? item.courses : [];
+    const courses = rawCourses.flatMap((course) => {
+      if (!course || typeof course !== 'object') return [];
+      const planned = course as Partial<PlannedCourse>;
+      if (typeof planned.instanceId !== 'string' || typeof planned.code !== 'string' || typeof planned.title !== 'string') {
+        return [];
+      }
+      if (typeof planned.kind !== 'string' || !courseKinds.has(planned.kind)) return [];
+      const numericCredits = typeof planned.credits === 'number' ? planned.credits : Number(planned.credits);
+      const credits = Number.isFinite(numericCredits) ? numericCredits : 0;
+      return [{ ...planned, credits, kind: planned.kind } as PlannedCourse];
+    });
+    terms.push({
+      id: item.id,
+      name: typeof item.name === 'string' ? item.name : 'Untitled term',
+      courses,
+    });
+  }
+
+  if (terms.length === 0) return undefined;
+  return { terms, completedBreadth };
 }
 
 function loadPlanner(): Planner {
@@ -102,12 +136,10 @@ function loadPlanner(): Planner {
   }
 
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const stored = window.localStorage.getItem(PLANNER_STORAGE_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored) as unknown;
-      if (isPlanner(parsed)) {
-        return parsed;
-      }
+      const parsed = sanitizePlanner(JSON.parse(stored) as unknown);
+      if (parsed) return parsed;
     }
   } catch {
   }
@@ -162,21 +194,69 @@ function CourseTags({ course }: { course: Pick<PlannedCourse, 'kind' | 'breadth'
 type PlannedCourseCardProps = {
   course: PlannedCourse;
   term: Term;
+  terms: Term[];
+  courseIndex: number;
+  courseCount: number;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onRemove: () => void;
   onUpdate: (patch: Partial<PlannedCourse>) => void;
+  onMoveToTerm: (destinationTermId: string) => void;
+  onReorder: (direction: -1 | 1) => void;
 };
 
-function PlannedCourseCard({ course, term, onDragStart, onRemove, onUpdate }: PlannedCourseCardProps) {
+function DeliverySelect({ course, onUpdate }: { course: PlannedCourse; onUpdate: (patch: Partial<PlannedCourse>) => void }) {
+  return (
+    <label className="delivery-control">
+      Section for the F-1 count
+      <span className="sr-only"> for {course.code || 'this course'}</span>
+      <select
+        value={course.delivery ?? ''}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          onUpdate({ delivery: value === '' ? undefined : value as DeliveryMode });
+        }}
+      >
+        <option value="">Not marked</option>
+        <option value="in-person">In person</option>
+        <option value="web">Distance (WEB, VIDEO, or HYBRD)</option>
+      </select>
+    </label>
+  );
+}
+
+function PlannedCourseCard({
+  course,
+  term,
+  terms,
+  courseIndex,
+  courseCount,
+  onDragStart,
+  onRemove,
+  onUpdate,
+  onMoveToTerm,
+  onReorder,
+}: PlannedCourseCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const minCredits = course.minCredits ?? 0;
-  const maxCredits = course.maxCredits ?? 99;
+  const maxCredits = course.maxCredits ?? 30;
 
   return (
     <article
       className={`planned-course ${isEditing ? 'planned-course--editing' : ''}`}
       draggable={!isEditing}
-      onDragStart={onDragStart}
+      onPointerDown={(event) => {
+        const target = event.target;
+        const interactive = target instanceof Element && Boolean(target.closest('select, input, textarea, button, a, label'));
+        event.currentTarget.draggable = !isEditing && !interactive;
+      }}
+      onDragStart={(event) => {
+        const target = event.target;
+        if (target instanceof Element && target.closest('select, input, textarea, button, a, label')) {
+          event.preventDefault();
+          return;
+        }
+        onDragStart(event);
+      }}
     >
       <div className="planned-course__topline">
         <span className="drag-handle" aria-label={`Drag ${course.code}`} title="Drag to another term">
@@ -226,20 +306,6 @@ function PlannedCourseCard({ course, term, onDragStart, onRemove, onUpdate }: Pl
               {term.id === 'fall-2026' && course.onlineFall2026 && (
                 <p className="course-details__fit">Listed by TAMU Engineering Online for Fall 2026.</p>
               )}
-              <label className="delivery-control">
-                Section for the F-1 count
-                <select
-                  value={course.delivery ?? ''}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    onUpdate({ delivery: value === '' ? undefined : value as DeliveryMode });
-                  }}
-                >
-                  <option value="">Not marked</option>
-                  <option value="in-person">In person</option>
-                  <option value="web">Distance (WEB, VIDEO, or HYBRD)</option>
-                </select>
-              </label>
             </details>
           )}
         </>
@@ -259,10 +325,15 @@ function PlannedCourseCard({ course, term, onDragStart, onRemove, onUpdate }: Pl
               Credits
               <input
                 type="number"
-                min="0"
-                max="30"
+                min={minCredits}
+                max={maxCredits}
                 value={course.credits}
-                onChange={(event) => onUpdate({ credits: Math.max(0, Number(event.currentTarget.value) || 0) })}
+                onChange={(event) => {
+                  const nextCredits = Number(event.currentTarget.value);
+                  if (Number.isFinite(nextCredits)) {
+                    onUpdate({ credits: Math.max(minCredits, Math.min(maxCredits, nextCredits)) });
+                  }
+                }}
               />
             </label>
             <label>
@@ -275,12 +346,49 @@ function PlannedCourseCard({ course, term, onDragStart, onRemove, onUpdate }: Pl
           <button className="text-button" type="button" onClick={() => setIsEditing(false)}>Done editing</button>
         </div>
       )}
+      <DeliverySelect course={course} onUpdate={onUpdate} />
+      <div className="course-move">
+        <label className="move-course">
+          Move to term
+          <span className="sr-only"> for {course.code || 'this course'}</span>
+          <select
+            value={term.id}
+            onChange={(event) => {
+              const destinationTermId = event.currentTarget.value;
+              if (destinationTermId !== term.id) onMoveToTerm(destinationTermId);
+            }}
+          >
+            {terms.map((item) => <option key={item.id} value={item.id}>{item.name || 'Untitled term'}</option>)}
+          </select>
+        </label>
+        <div className="course-move__order">
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={`Move ${course.code || 'course'} earlier in ${term.name || 'this term'}`}
+            onClick={() => onReorder(-1)}
+            disabled={courseIndex === 0}
+          >
+            <ArrowUp size={15} />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={`Move ${course.code || 'course'} later in ${term.name || 'this term'}`}
+            onClick={() => onReorder(1)}
+            disabled={courseIndex >= courseCount - 1}
+          >
+            <ArrowDown size={15} />
+          </button>
+        </div>
+      </div>
     </article>
   );
 }
 
 type TermColumnProps = {
   term: Term;
+  terms: Term[];
   index: number;
   canRemove: boolean;
   canMoveLater: boolean;
@@ -291,10 +399,13 @@ type TermColumnProps = {
   onCourseDragStart: (course: PlannedCourse, event: DragEvent<HTMLElement>) => void;
   onRemoveCourse: (course: PlannedCourse) => void;
   onUpdateCourse: (course: PlannedCourse, patch: Partial<PlannedCourse>) => void;
+  onMoveCourse: (instanceId: string, destinationTermId: string) => void;
+  onReorderCourse: (instanceId: string, direction: -1 | 1) => void;
 };
 
 function TermColumn({
   term,
+  terms,
   index,
   canRemove,
   canMoveLater,
@@ -305,9 +416,14 @@ function TermColumn({
   onCourseDragStart,
   onRemoveCourse,
   onUpdateCourse,
+  onMoveCourse,
+  onReorderCourse,
 }: TermColumnProps) {
   const [dropDepth, setDropDepth] = useState(0);
-  const credits = sumCredits(term.courses);
+  const courses = (Array.isArray(term.courses) ? term.courses : []).filter(
+    (course) => course != null && typeof course.code === 'string' && typeof course.instanceId === 'string',
+  );
+  const credits = sumCredits(courses);
 
   return (
     <section
@@ -343,21 +459,26 @@ function TermColumn({
           </button>
         </div>
       </header>
-      <div className="term-column__meta"><span>{creditLabel(credits)}</span><span>{term.courses.length} items</span></div>
+      <div className="term-column__meta"><span>{creditLabel(credits)}</span><span>{courses.length} items</span></div>
       <div className="term-column__courses">
-        {term.courses.map((course) => (
+        {courses.map((course, courseIndex) => (
           <PlannedCourseCard
             key={course.instanceId}
             course={course}
             term={term}
+            terms={terms}
+            courseIndex={courseIndex}
+            courseCount={courses.length}
             onDragStart={(event) => onCourseDragStart(course, event)}
             onRemove={() => onRemoveCourse(course)}
             onUpdate={(patch) => onUpdateCourse(course, patch)}
+            onMoveToTerm={(destinationTermId) => onMoveCourse(course.instanceId, destinationTermId)}
+            onReorder={(direction) => onReorderCourse(course.instanceId, direction)}
           />
         ))}
-        {term.courses.length === 0 && <div className="empty-dropzone">Drop an available course here</div>}
+        {courses.length === 0 && <div className="empty-dropzone">Drop an available course here</div>}
       </div>
-      <p className="term-column__hint">Drag a course here or use the quick-add menu.</p>
+      <p className="term-column__hint">Drag a course here, use Move to term, or use the quick-add menu.</p>
     </section>
   );
 }
@@ -369,6 +490,7 @@ export default function App() {
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customDraft, setCustomDraft] = useState<CustomDraft>(emptyCustomDraft);
   const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [saveWarning, setSaveWarning] = useState<string | undefined>(undefined);
 
   const applyRemotePlanner = useCallback((next: Planner) => setPlanner(next), []);
   const sync = useDegreeSync(planner, applyRemotePlanner);
@@ -391,13 +513,20 @@ export default function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(planner));
+      window.localStorage.setItem(PLANNER_STORAGE_KEY, JSON.stringify(planner));
+      setSaveWarning((current) => (current ? undefined : current));
     } catch {
+      setSaveWarning('This browser could not store the plan. The board is still open, but a reload may drop the latest edits.');
     }
   }, [planner]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    const color = theme === 'dark' ? '#171310' : '#f7f3eb';
+    document.querySelectorAll('meta[name="theme-color"]').forEach((node) => {
+      node.setAttribute('content', color);
+      node.removeAttribute('media');
+    });
     try {
       window.localStorage.setItem(THEME_KEY, theme);
     } catch {
@@ -554,8 +683,23 @@ export default function App() {
     setQuickTermId(id);
   };
 
+  const reorderCourse = (termId: string, instanceId: string, direction: -1 | 1) => {
+    setPlanner((current) => ({
+      ...current,
+      terms: current.terms.map((term) => {
+        if (term.id !== termId || !Array.isArray(term.courses)) return term;
+        const index = term.courses.findIndex((course) => course.instanceId === instanceId);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= term.courses.length) return term;
+        const courses = [...term.courses];
+        [courses[index], courses[nextIndex]] = [courses[nextIndex], courses[index]];
+        return { ...term, courses };
+      }),
+    }));
+  };
+
   const resetPlanner = () => {
-    if (window.confirm('Reset every term and course to the original six-term planning starter?')) {
+    if (window.confirm('Replace every term and course with an empty starter for the next four terms? This removes the courses on the board.')) {
       setPlanner(createSeedPlanner());
     }
   };
@@ -597,14 +741,23 @@ export default function App() {
               <LogOut size={15} />Sign out
             </button>
           ) : (
-            <button
-              className="header-reset"
-              type="button"
-              onClick={() => void sync.signIn()}
-              title="Sign in with either approved Google account. Both sync the same private plan."
-            >
-              <LogIn size={15} />Sign in
-            </button>
+            <>
+              <button
+                className="header-reset"
+                type="button"
+                onClick={() => void sync.signIn()}
+                title={sync.sessionBlocked
+                  ? 'Try the shared vault again for this Google session.'
+                  : 'Sign in with either approved Google account. Both sync the same private plan.'}
+              >
+                <LogIn size={15} />{sync.sessionBlocked ? 'Try again' : 'Sign in'}
+              </button>
+              {sync.sessionBlocked && (
+                <button className="header-reset" type="button" onClick={() => void sync.signOut()}>
+                  <LogOut size={15} />Sign out
+                </button>
+              )}
+            </>
           )}
           <a className="header-link" href="#sources"><BookOpen size={15} />Sources</a>
           <button
@@ -624,6 +777,13 @@ export default function App() {
           <div className="sync-notice" role="alert">
             <CircleAlert size={16} />
             <span>{sync.message}</span>
+          </div>
+        )}
+
+        {saveWarning && (
+          <div className="sync-notice" role="alert">
+            <CircleAlert size={16} />
+            <span>{saveWarning}</span>
           </div>
         )}
 
@@ -713,7 +873,13 @@ export default function App() {
                       {requirement.status === 'complete' ? <Check size={16} /> : <CircleAlert size={16} />}
                     </div>
                     <div className="requirement__content">
-                      <div className="requirement__label-row"><strong>{requirement.label}</strong><span>{statusCopy(requirement.status)}</span></div>
+                      <div className="requirement__label-row">
+                        <strong>
+                          <i className={`legend-dot ${area ? 'legend-dot--editable' : 'legend-dot--official'}`} aria-hidden="true" />
+                          {requirement.label}
+                        </strong>
+                        <span>{statusCopy(requirement.status)}</span>
+                      </div>
                       <p className="requirement__value">{requirement.value}</p>
                       <p className="requirement__explanation">{requirement.explanation}</p>
                       {area && (
@@ -758,6 +924,7 @@ export default function App() {
                 <TermColumn
                   key={term.id}
                   term={term}
+                  terms={planner.terms}
                   index={index}
                   canRemove={planner.terms.length > 1}
                   canMoveLater={index < planner.terms.length - 1}
@@ -766,10 +933,20 @@ export default function App() {
                     terms: current.terms.map((item) => item.id === term.id ? { ...item, name } : item),
                   }))}
                   onMoveTerm={(direction) => moveTerm(term.id, direction)}
-                  onRemoveTerm={() => setPlanner((current) => ({
-                    ...current,
-                    terms: current.terms.filter((item) => item.id !== term.id),
-                  }))}
+                  onRemoveTerm={() => {
+                    const count = Array.isArray(term.courses) ? term.courses.length : 0;
+                    const name = term.name || 'this term';
+                    const message = count === 0
+                      ? `Remove ${name}?`
+                      : `Remove ${name} and the ${count} course${count === 1 ? '' : 's'} on it?`;
+                    if (!window.confirm(message)) return;
+                    setPlanner((current) => ({
+                      ...current,
+                      terms: current.terms.filter((item) => item.id !== term.id),
+                    }));
+                  }}
+                  onMoveCourse={(instanceId, destinationTermId) => moveCourse(term.id, destinationTermId, instanceId)}
+                  onReorderCourse={(instanceId, direction) => reorderCourse(term.id, instanceId, direction)}
                   onDropCourse={(event) => handleDrop(term.id, event)}
                   onCourseDragStart={(course, event) => {
                     const payload: DragPayload = { kind: 'planned', sourceTermId: term.id, instanceId: course.instanceId };
@@ -812,7 +989,7 @@ export default function App() {
                 <p><strong>Rate My Professors, not a degree rule.</strong> {check.ratings}</p>
                 <div className="elective-links">
                   {check.links.map((link) => (
-                    <a key={link.href} href={link.href} target="_blank" rel="noreferrer">{link.label}<ExternalLink size={12} /></a>
+                    <a key={link.href} href={link.href} target="_blank" rel="noreferrer">{link.label}<ExternalLink size={12} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
                   ))}
                 </div>
               </article>
@@ -912,7 +1089,7 @@ export default function App() {
             <p>This planner separates published requirements from editable assumptions. It does not replace degree-plan approval, the advisory committee, or the current Howdy schedule.</p>
           </div>
           <div className="source-links">
-            {officialSources.map((source) => <a key={source.href} href={source.href} target="_blank" rel="noreferrer"><Library size={16} />{source.label}<ExternalLink size={13} /></a>)}
+            {officialSources.map((source) => <a key={source.href} href={source.href} target="_blank" rel="noreferrer"><Library size={16} aria-hidden="true" />{source.label}<ExternalLink size={13} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>)}
           </div>
         </section>
         </fieldset>

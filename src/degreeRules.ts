@@ -33,7 +33,17 @@ const canonicalCode = (code: string) => code.trim().toUpperCase().replace(/\s+/g
 /** True for courses the MSCS department says cannot be used on any degree plan. */
 export const isExcludedCode = (code: string) => excludedCodes.has(canonicalCode(code));
 
-const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+const sum = (values: number[]) =>
+  values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+
+/** Catalog maxima cap what counts. Hours still sitting on the card stay in the raw total. */
+const cappedCredits = (course: { credits: number; maxCredits?: number }) => {
+  const credits = Number.isFinite(course.credits) ? course.credits : 0;
+  if (typeof course.maxCredits === 'number' && Number.isFinite(course.maxCredits)) {
+    return Math.min(credits, Math.max(0, course.maxCredits));
+  }
+  return credits;
+};
 
 const atLeastStatus = (value: number, target: number): RequirementStatus =>
   value >= target ? 'complete' : 'pending';
@@ -51,15 +61,19 @@ const conditionStatus = (satisfied: boolean): RequirementStatus =>
   satisfied ? 'complete' : 'warning';
 
 export function evaluatePlan(planner: Planner): PlanEvaluation {
-  const allCourses = planner.terms.flatMap((term, termIndex) =>
-    term.courses.map((course) => ({ course, term, termIndex })),
-  );
+  const allCourses = planner.terms.flatMap((term, termIndex) => {
+    if (!term || !Array.isArray(term.courses)) return [];
+    return term.courses.flatMap((course) => {
+      if (!course || typeof course.code !== 'string') return [];
+      return [{ course, term, termIndex }];
+    });
+  });
   const totalCredits = sum(allCourses.map(({ course }) => course.credits));
   const eligibleCourses = allCourses.filter(({ course }) => !excludedCodes.has(canonicalCode(course.code)));
   const gradedCsceCredits = sum(
     eligibleCourses
       .filter(({ course }) => course.kind === 'csce-graded')
-      .map(({ course }) => course.credits),
+      .map(({ course }) => cappedCredits(course)),
   );
   const seminarCredits = sum(
     eligibleCourses.filter(({ course }) => course.kind === 'seminar').map(({ course }) => course.credits),
@@ -83,7 +97,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
   const researchCountable = Math.min(researchCredits, 6);
   const directedCountable = Math.min(directedStudyCredits, 3, Math.max(0, 7 - researchCountable));
   const nonCsceCountable = Math.min(nonCsceCredits, 6);
-  const undergradCountable = Math.min(undergradCsceCredits, 3);
+  const undergradCountable = undergradCsce.length === 1 ? Math.min(undergradCsceCredits, 3) : 0;
   const countableCredits =
     gradedCsceCredits +
     seminarCountable +
@@ -117,10 +131,11 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
         label: breadthLabels[area],
         value: planner.completedBreadth[area] ? 'Marked complete' : `${matching} selected`,
         status: isComplete ? 'complete' : 'pending',
-        explanation:
-          area === 'systems' && planner.completedBreadth.systems
-            ? 'Editable prior-completion assumption; it adds no credits to this plan.'
-            : 'One approved CSCE breadth course is required, passed with B or better.',
+        explanation: planner.completedBreadth[area]
+          ? 'Marked complete from prior coursework. It adds no credits to this plan. Confirm a B or better with the graduate advisor.'
+          : matching > 0
+            ? 'One approved CSCE breadth course is required, passed with a B or better. The planner can see a matching course on the board, but it cannot see the grade.'
+            : 'One approved CSCE breadth course is required, passed with a B or better. The planner cannot see the grade.',
       };
     }),
     {
@@ -162,14 +177,15 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
 
   const alerts: PlanAlert[] = [];
 
-  if (planner.completedBreadth.systems) {
+  (['theory', 'systems', 'software'] as BreadthArea[]).forEach((area) => {
+    if (!planner.completedBreadth[area]) return;
     alerts.push({
-      id: 'systems-assumption',
-      title: 'Systems breadth is an editable planning assumption',
-      detail: 'It begins marked complete as requested and does not add a course or credits. Confirm the basis with the graduate advisor.',
+      id: `${area}-assumption`,
+      title: `${breadthLabels[area]} is an editable planning assumption`,
+      detail: 'The box is checked, so this area is treated as already satisfied. It does not add a course or credits. Confirm the basis, including a B or better, with the graduate advisor.',
       level: 'info',
     });
-  }
+  });
 
   if (researchCredits > researchCountable) {
     alerts.push({
@@ -189,6 +205,33 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     });
   }
 
+  if (otherCredits > 0) {
+    alerts.push({
+      id: 'other-uncapped',
+      title: `${otherCredits} custom-item ${otherCredits === 1 ? 'credit counts' : 'credits count'} with no category cap`,
+      detail: 'Items left as Custom item are added in full toward the 30. Classify a non-CSCE graduate course as Non-CSCE grad so the 6-hour cap applies, or pick the matching CSCE classification.',
+      level: 'warning',
+    });
+  }
+
+  const duplicateCounts = new Map<string, number>();
+  eligibleCourses.forEach(({ course }) => {
+    if (course.kind !== 'csce-graded' && course.kind !== 'non-csce-grad' && course.kind !== 'csce-400' && course.kind !== 'other') {
+      return;
+    }
+    const code = canonicalCode(course.code);
+    duplicateCounts.set(code, (duplicateCounts.get(code) ?? 0) + 1);
+  });
+  duplicateCounts.forEach((count, code) => {
+    if (count < 2) return;
+    alerts.push({
+      id: `duplicate-${code.replace(/\s+/g, '-')}`,
+      title: `${code} is on the board ${count} times`,
+      detail: 'Each copy counts toward the degree plan. Remove the extra card unless the advisor approved repeating it. Research, seminar, directed study, and internship cards can repeat without this note.',
+      level: 'warning',
+    });
+  });
+
   allCourses.forEach(({ course, term, termIndex }) => {
     if (excludedCodes.has(canonicalCode(course.code))) {
       alerts.push({
@@ -199,7 +242,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
       });
     }
 
-    if (!course.prerequisitePaths?.length || !course.prerequisiteText) {
+    if (!Array.isArray(course.prerequisitePaths) || course.prerequisitePaths.length === 0 || !course.prerequisiteText) {
       return;
     }
 
@@ -224,16 +267,18 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
   });
 
   planner.terms.forEach((term) => {
+    if (!term || !Array.isArray(term.courses)) return;
+    const courses = term.courses.filter((course) => course && typeof course.code === 'string');
     const webCredits = sum(
-      term.courses.filter((course) => course.delivery === 'web').map((course) => course.credits),
+      courses.filter((course) => course.delivery === 'web').map((course) => course.credits),
     );
     if (webCredits <= 0) return;
 
     const inPersonCredits = sum(
-      term.courses.filter((course) => course.delivery === 'in-person').map((course) => course.credits),
+      courses.filter((course) => course.delivery === 'in-person').map((course) => course.credits),
     );
     const unmarkedCredits = sum(
-      term.courses.filter((course) => course.delivery !== 'web' && course.delivery !== 'in-person').map((course) => course.credits),
+      courses.filter((course) => course.delivery !== 'web' && course.delivery !== 'in-person').map((course) => course.credits),
     );
     const counted = inPersonCredits + Math.min(webCredits, 3);
     const longSemester = /\b(spring|fall)\b/i.test(term.name) && !/\bsummer\b/i.test(term.name);

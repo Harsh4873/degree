@@ -184,6 +184,12 @@ export function parsePlanDocument(value: unknown): ParsedPlan | undefined {
   if (!planner || typeof planner !== 'object') return undefined;
   if (!Array.isArray(planner.terms)) return undefined;
   if (!isBreadthMap(planner.completedBreadth)) return undefined;
+  const termsCanDecode = planner.terms.every((term) => {
+    if (!term || typeof term !== 'object') return false;
+    const courses = (term as Partial<WireTerm>).courses;
+    return Array.isArray(courses) && courses.every((course) => course !== null && typeof course === 'object');
+  });
+  if (!termsCanDecode) return undefined;
 
   return {
     planner: decodePlanner({ terms: planner.terms, completedBreadth: planner.completedBreadth }),

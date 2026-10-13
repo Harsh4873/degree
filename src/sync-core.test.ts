@@ -147,6 +147,21 @@ describe('parsePlanDocument', () => {
     expect(parsePlanDocument({ ...good, updatedAtMs: 'soon' })).toBeUndefined();
     expect(parsePlanDocument({ ...good, planner: { terms: 'nope', completedBreadth: emptyBreadth } })).toBeUndefined();
     expect(parsePlanDocument({ ...good, planner: { terms: [], completedBreadth: { theory: false } } })).toBeUndefined();
+    expect(parsePlanDocument({
+      ...good,
+      planner: { terms: [null], completedBreadth: emptyBreadth },
+    })).toBeUndefined();
+    expect(parsePlanDocument({
+      ...good,
+      planner: { terms: [{ id: 'term-1', name: 'Fall 2026' }], completedBreadth: emptyBreadth },
+    })).toBeUndefined();
+    expect(parsePlanDocument({
+      ...good,
+      planner: {
+        terms: [{ id: 'term-1', name: 'Fall 2026', courses: [null] }],
+        completedBreadth: emptyBreadth,
+      },
+    })).toBeUndefined();
   });
 });
 
