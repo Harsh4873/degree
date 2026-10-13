@@ -307,7 +307,7 @@ main {
   font-size: clamp(3rem, 6vw, 5.7rem);
   font-weight: 460;
   letter-spacing: -0.04em;
-  line-height: 1.05;
+  line-height: 1.15;
 }
 
 .hero__note {
@@ -905,7 +905,7 @@ main {
   padding: 0.13rem 0.25rem;
   border: 1px solid #dfd0be;
   border-radius: 5px;
-  color: #887465;
+  color: #826e61;
   font-size: 0.58rem;
   font-weight: 700;
 }
@@ -1145,7 +1145,7 @@ main {
 
 .catalog-course__credits {
   margin-left: auto;
-  color: #8c7661;
+  color: #846e5d;
   font-size: 0.65rem;
   font-weight: 720;
 }
@@ -1166,7 +1166,7 @@ main {
 }
 
 .catalog-course__prerequisite {
-  color: #93745a !important;
+  color: #8b6c56 !important;
 }
 
 .availability-badge {
@@ -1412,7 +1412,7 @@ main {
 }
 
 .guidance-card--info p {
-  color: #637c86;
+  color: #5f747e;
 }
 
 .guidance-card--clear {
@@ -1422,13 +1422,14 @@ main {
 }
 
 .guidance-card--clear p {
-  color: #68806d;
+  color: #617663;
 }
 
 .sources {
   align-items: center;
   margin-bottom: 0;
   padding: clamp(1.2rem, 3vw, 1.6rem);
+  scroll-margin-top: 7.5rem;
 }
 
 .sources > div:first-child {
@@ -1535,13 +1536,12 @@ main {
     padding: 0.7rem 1rem;
   }
 
-  .saved-state,
   .header-link {
     display: none;
   }
 
-  .saved-state.saved-state--action-needed {
-    display: flex;
+  .saved-state {
+    margin-right: 0;
   }
 
   .search-control input,

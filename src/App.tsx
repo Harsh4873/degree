@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import { catalogCourseById, catalogCourses, cloneCourse, createSeedPlanner, officialSources, spring2027Checks } from './catalog';
+import { breadthForCode } from './catalogOverrides';
 import { evaluatePlan } from './degreeRules';
 import { useDegreeSync, type SyncStatus } from './useDegreeSync';
 import type { BreadthArea, CourseKind, CourseTemplate, DeliveryMode, PlannedCourse, Planner, Term } from './types';
@@ -64,6 +65,46 @@ const emptyCustomDraft = (): CustomDraft => ({
   credits: 3,
   kind: 'other',
 });
+
+function customCreditLimits(kind: CourseKind): { minCredits: number; maxCredits: number } {
+  switch (kind) {
+    case 'csce-graded':
+    case 'csce-400':
+      return { minCredits: 0, maxCredits: 3 };
+    case 'seminar':
+      return { minCredits: 0, maxCredits: 1 };
+    case 'research':
+      return { minCredits: 0, maxCredits: 23 };
+    case 'directed-study':
+      return { minCredits: 0, maxCredits: 12 };
+    case 'internship':
+      return { minCredits: 0, maxCredits: 16 };
+    case 'non-csce-grad':
+      return { minCredits: 0, maxCredits: 6 };
+    default:
+      return { minCredits: 0, maxCredits: 30 };
+  }
+}
+
+function clampToLimits(credits: number, limits: { minCredits: number; maxCredits: number }): number {
+  if (!Number.isFinite(credits)) return limits.minCredits;
+  return Math.min(limits.maxCredits, Math.max(limits.minCredits, credits));
+}
+
+function creditCeiling(course: Pick<PlannedCourse, 'kind' | 'maxCredits'>): number {
+  if (typeof course.maxCredits === 'number' && Number.isFinite(course.maxCredits)) {
+    return Math.max(0, course.maxCredits);
+  }
+  return course.kind === 'csce-graded' ? 3 : 30;
+}
+
+function footerSaveLabel(signedIn: boolean, status: SyncStatus): string {
+  if (!signedIn) return 'saved in this browser';
+  if (status === 'offline') return 'saved on this device until you reconnect';
+  if (status === 'action-needed') return 'sync needs attention';
+  if (status === 'syncing') return 'saving to your Google account';
+  return 'synced to your Google account';
+}
 
 const creditLabel = (credits: number) => `${credits} credit${credits === 1 ? '' : 's'}`;
 
@@ -181,11 +222,12 @@ function breadthFromRequirementId(id: string): BreadthArea | undefined {
   return area === 'theory' || area === 'systems' || area === 'software' ? area : undefined;
 }
 
-function CourseTags({ course }: { course: Pick<PlannedCourse, 'kind' | 'breadth' | 'source'> }) {
+function CourseTags({ course }: { course: Pick<PlannedCourse, 'code' | 'kind' | 'source'> }) {
+  const breadth = breadthForCode(course.code);
   return (
     <div className="course-tags">
       <span className={`tag tag--${course.kind}`}>{kindLabels[course.kind]}</span>
-      {course.breadth && <span className="tag tag--breadth">{course.breadth} breadth</span>}
+      {breadth && <span className="tag tag--breadth">{breadth} breadth</span>}
       {course.source === 'custom' && <span className="tag tag--custom">Editable</span>}
     </div>
   );
@@ -238,7 +280,7 @@ function PlannedCourseCard({
 }: PlannedCourseCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const minCredits = course.minCredits ?? 0;
-  const maxCredits = course.maxCredits ?? 30;
+  const maxCredits = creditCeiling(course);
 
   return (
     <article
@@ -314,7 +356,10 @@ function PlannedCourseCard({
           <p className="course-editor__notice">Changing course metadata makes this an editable planning entry; the catalog source remains available in the course bank.</p>
           <label>
             Course code
-            <input value={course.code} onChange={(event) => onUpdate({ code: event.currentTarget.value, source: 'custom' })} />
+            <input value={course.code} onChange={(event) => {
+              const code = event.currentTarget.value;
+              onUpdate({ code, source: 'custom', breadth: breadthForCode(code) });
+            }} />
           </label>
           <label>
             Title
@@ -338,7 +383,21 @@ function PlannedCourseCard({
             </label>
             <label>
               Classification
-              <select value={course.kind} onChange={(event) => onUpdate({ kind: event.currentTarget.value as CourseKind, source: 'custom' })}>
+              <select value={course.kind} onChange={(event) => {
+                const kind = event.currentTarget.value as CourseKind;
+                if (course.source !== 'custom' && typeof course.maxCredits === 'number') {
+                  onUpdate({ kind, source: 'custom' });
+                  return;
+                }
+                const limits = customCreditLimits(kind);
+                onUpdate({
+                  kind,
+                  source: 'custom',
+                  minCredits: limits.minCredits,
+                  maxCredits: limits.maxCredits,
+                  credits: clampToLimits(course.credits, limits),
+                });
+              }}>
                 {Object.entries(kindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
               </select>
             </label>
@@ -521,6 +580,25 @@ export default function App() {
   }, [planner]);
 
   useEffect(() => {
+    if (sync.user) return undefined;
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== PLANNER_STORAGE_KEY || event.storageArea !== window.localStorage) return;
+      if (!event.newValue) return;
+      try {
+        const parsed = sanitizePlanner(JSON.parse(event.newValue) as unknown);
+        if (!parsed) return;
+        setPlanner((current) => (JSON.stringify(current) === JSON.stringify(parsed) ? current : parsed));
+      } catch {
+        // The other tab can write a partial value. Keep this tab's board.
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [sync.user]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     const color = theme === 'dark' ? '#171310' : '#f7f3eb';
     document.querySelectorAll('meta[name="theme-color"]').forEach((node) => {
@@ -565,12 +643,19 @@ export default function App() {
       return;
     }
 
+    const limits = customCreditLimits(customDraft.kind);
+    const credits = clampToLimits(customDraft.credits, limits);
+    const code = customDraft.code.trim() || 'Custom course';
+    const breadth = breadthForCode(code);
     const template: CourseTemplate = {
       id: `custom-${Date.now().toString(36)}`,
-      code: customDraft.code.trim() || 'Custom course',
+      code,
       title: customDraft.title.trim(),
-      defaultCredits: customDraft.credits,
+      defaultCredits: credits,
+      minCredits: limits.minCredits,
+      maxCredits: limits.maxCredits,
       kind: customDraft.kind,
+      ...(breadth ? { breadth } : {}),
       source: 'custom',
     };
 
@@ -578,7 +663,7 @@ export default function App() {
       ...current,
       terms: current.terms.map((term) =>
         term.id === quickTermId
-          ? { ...term, courses: [...term.courses, cloneCourse(template, customDraft.credits)] }
+          ? { ...term, courses: [...term.courses, cloneCourse(template, credits)] }
           : term,
       ),
     }));
@@ -780,6 +865,13 @@ export default function App() {
           </div>
         )}
 
+        {sync.status === 'offline' && sync.message && !sync.isHydrating && (
+          <div className="sync-notice" role="status">
+            <CloudOff size={16} aria-hidden="true" />
+            <span>{sync.message}</span>
+          </div>
+        )}
+
         {saveWarning && (
           <div className="sync-notice" role="alert">
             <CircleAlert size={16} />
@@ -808,8 +900,8 @@ export default function App() {
           <aside className="hero__note">
             <Info size={18} />
             <div>
-              <strong>Start by dragging courses onto a term.</strong>
-              <p>Breadth areas you have already satisfied are editable assumptions that add no credits; tick them in the requirements panel.</p>
+              <strong>Add a course to a term.</strong>
+              <p>Drag it onto a term, or use Move to term on a placed card. Breadth areas you have already satisfied are editable assumptions that add no credits; tick them in the requirements panel.</p>
             </div>
           </aside>
         </section>
@@ -962,7 +1054,7 @@ export default function App() {
 
             <div className="board-footnote">
               <Info size={16} />
-              <p><strong>Term fit is intentionally conservative:</strong> a Fall 2026 badge means TAMU Engineering Online listed the course for that exact term. No badge is not an availability prediction; verify future offerings in Howdy. Mark a placed section in person or distance so the F-1 count can see it. ISSS counts only 3 distance credits toward the 9-hour fall and spring minimum.</p>
+              <p><strong>Term fit is intentionally conservative:</strong> a Fall 2026 badge means TAMU Engineering Online listed the course for that exact term. No badge is not an availability prediction; verify future offerings in Howdy. Mark a placed section in person or distance so the F-1 count can see it. ISSS counts one distance course, up to 3 credits, toward the 9-hour fall and spring minimum.</p>
             </div>
           </section>
         </div>
@@ -1056,8 +1148,12 @@ export default function App() {
             <form className="custom-course-form" onSubmit={addCustomCourse}>
               <label>Course code<input value={customDraft.code} onChange={(event) => updateCustomDraft({ code: event.currentTarget.value })} placeholder="Example: MATH 609" /></label>
               <label>Course title<input required value={customDraft.title} onChange={(event) => updateCustomDraft({ title: event.currentTarget.value })} placeholder="Advisor-approved elective" /></label>
-              <label>Credits<input type="number" min="0" max="30" value={customDraft.credits} onChange={(event) => updateCustomDraft({ credits: Math.max(0, Number(event.currentTarget.value) || 0) })} /></label>
-              <label>Classification<select value={customDraft.kind} onChange={(event) => updateCustomDraft({ kind: event.currentTarget.value as CourseKind })}>{Object.entries(kindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+              <label>Credits<input type="number" min={customCreditLimits(customDraft.kind).minCredits} max={customCreditLimits(customDraft.kind).maxCredits} value={customDraft.credits} onChange={(event) => updateCustomDraft({ credits: clampToLimits(Number(event.currentTarget.value), customCreditLimits(customDraft.kind)) })} /></label>
+              <label>Classification<select value={customDraft.kind} onChange={(event) => {
+                const kind = event.currentTarget.value as CourseKind;
+                const limits = customCreditLimits(kind);
+                setCustomDraft((current) => ({ ...current, kind, credits: clampToLimits(current.credits, limits) }));
+              }}>{Object.entries(kindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
               <button className="primary-button" type="submit"><Plus size={16} />Add to {planner.terms.find((term) => term.id === quickTermId)?.name || 'plan'}</button>
             </form>
           )}
@@ -1096,7 +1192,7 @@ export default function App() {
       </main>
 
       <footer className="site-footer">
-        Degree Canvas · TAMU MSCS · {sync.user ? 'synced to your Google account' : 'saved in this browser'}
+        Degree Canvas · TAMU MSCS · {footerSaveLabel(Boolean(sync.user), sync.status)}
       </footer>
     </div>
   );

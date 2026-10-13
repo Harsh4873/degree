@@ -19,7 +19,10 @@ describe('evaluatePlan', () => {
     expect(evaluation.requirements.find((rule) => rule.id === 'breadth-theory')?.status).toBe('complete');
     expect(evaluation.requirements.find((rule) => rule.id === 'breadth-software')?.status).toBe('complete');
     expect(evaluation.alerts.some((alert) => alert.id === 'research-countable')).toBe(true);
-    expect(evaluation.alerts.some((alert) => alert.level === 'warning')).toBe(false);
+    expect(evaluation.alerts.filter((alert) => alert.level === 'warning').map((alert) => alert.title).sort()).toEqual([
+      'Preparation check for CSCE 606 in Spring 2028',
+      'Preparation check for CSCE 627 in Fall 2026',
+    ]);
   });
 
   it('caps combined CSCE 685 and 691 counted credits at seven', () => {
@@ -115,6 +118,8 @@ describe('evaluatePlan', () => {
             id: 'csce-610',
             title: 'Prior preparation',
             breadth: undefined,
+            prerequisiteText: undefined,
+            prerequisitePaths: undefined,
           }],
         },
         { id: 'two', name: 'Spring 2027', courses: [cloneCourse(collaborativeWork)] },
@@ -369,5 +374,191 @@ describe('evaluatePlan', () => {
     } as unknown as Planner;
     expect(() => evaluatePlan(planner)).not.toThrow();
     expect(evaluatePlan(planner).gradedCsceCredits).toBe(3);
+  });
+
+  it('caps a graded custom course that has no catalog maximum', () => {
+    const evaluation = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [{
+        instanceId: 'wide', id: 'wide', code: 'CSCE 689', title: 'Custom graded',
+        defaultCredits: 3, credits: 40, kind: 'csce-graded', source: 'custom',
+      }] }],
+    });
+    expect(evaluation.gradedCsceCredits).toBe(3);
+    expect(evaluation.countableCredits).toBe(3);
+    expect(evaluation.totalCredits).toBe(40);
+  });
+
+  it('counts a repeated graded or non-CSCE code once', () => {
+    const card = (instanceId: string, code: string, kind: 'csce-graded' | 'non-csce-grad') => ({
+      instanceId, id: instanceId, code, title: code,
+      defaultCredits: 3, maxCredits: 3, credits: 3, kind, source: 'custom' as const,
+    });
+    const graded = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [
+        card('a', 'CSCE 629', 'csce-graded'),
+        card('b', 'CSCE 629', 'csce-graded'),
+      ] }],
+    });
+    expect(graded.gradedCsceCredits).toBe(3);
+    expect(graded.countableCredits).toBe(3);
+    expect(graded.alerts.some((alert) => alert.id === 'duplicate-CSCE-629')).toBe(true);
+
+    const outside = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [
+        card('a', 'STAT 630', 'non-csce-grad'),
+        card('b', 'STAT 630', 'non-csce-grad'),
+      ] }],
+    });
+    expect(outside.requirements.find((rule) => rule.id === 'non-csce')?.value).toBe('3 planned · 3 count');
+    expect(outside.countableCredits).toBe(3);
+
+    const larger = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [
+        card('a', 'CSCE 629', 'csce-graded'),
+        { ...card('b', 'CSCE 629', 'csce-graded'), credits: 1 },
+      ] }],
+    });
+    expect(larger.gradedCsceCredits).toBe(3);
+  });
+
+  it('does not treat a cleared course code as a repeated course', () => {
+    const card = (instanceId: string, code: string) => ({
+      instanceId, id: instanceId, code, title: 'Untitled',
+      defaultCredits: 3, credits: 3, kind: 'csce-graded' as const, source: 'custom' as const,
+    });
+    const evaluation = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [card('a', ' '), card('b', '')] }],
+    });
+    expect(evaluation.gradedCsceCredits).toBe(6);
+    expect(evaluation.alerts.some((alert) => alert.id.startsWith('duplicate'))).toBe(false);
+  });
+
+  it('uses the official breadth course, not a stale breadth tag', () => {
+    const renamed = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [{
+        instanceId: 'renamed', id: 'renamed', code: 'MATH 609', title: 'Was algorithms',
+        defaultCredits: 3, maxCredits: 3, credits: 3, kind: 'non-csce-grad', breadth: 'theory', source: 'custom',
+      }] }],
+    });
+    expect(renamed.requirements.find((rule) => rule.id === 'breadth-theory')?.status).toBe('pending');
+
+    const retitled = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [{
+        instanceId: 'kept', id: 'kept', code: 'CSCE 629', title: 'Analysis of Algorithms',
+        defaultCredits: 3, maxCredits: 3, credits: 3, kind: 'csce-graded', source: 'custom',
+      }] }],
+    });
+    expect(retitled.requirements.find((rule) => rule.id === 'breadth-theory')?.status).toBe('complete');
+  });
+
+  it('counts one distance course, up to 3 credits, toward the F-1 minimum', () => {
+    const course = (instanceId: string, credits: number, delivery: 'web' | 'in-person') => ({
+      instanceId, id: instanceId, code: `CSCE ${instanceId}`, title: 'Section',
+      defaultCredits: credits, credits, kind: 'csce-graded' as const, source: 'custom' as const,
+      maxCredits: credits, delivery,
+    });
+    const short = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'spring-2027',
+        name: 'Spring 2027',
+        courses: [course('1', 1, 'web'), course('2', 2, 'web'), course('3', 6, 'in-person')],
+      }],
+    });
+    const shortAlert = short.alerts.find((alert) => alert.id === 'f1-distance-spring-2027');
+    expect(shortAlert?.level).toBe('warning');
+    expect(shortAlert?.detail).toContain('8 hours count');
+
+    const renamed = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'fall-2026',
+        name: 'Year one',
+        courses: [course('web', 3, 'web'), course('room', 3, 'in-person')],
+      }],
+    });
+    expect(renamed.alerts.find((alert) => alert.id === 'f1-distance-fall-2026')?.level).toBe('warning');
+
+    const summer = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'fall-2026',
+        name: 'Summer session',
+        courses: [course('web', 3, 'web')],
+      }],
+    });
+    const summerAlert = summer.alerts.find((alert) => alert.id === 'f1-distance-fall-2026');
+    expect(summerAlert?.level).toBe('info');
+    expect(summerAlert?.title).toContain('has distance credits');
+  });
+
+  it('warns when a CPT course is marked distance', () => {
+    const internship = catalogCourseById('csce-684');
+    if (!internship) throw new Error('Expected catalog course was not found');
+    const evaluation = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{
+        id: 'summer-2027',
+        name: 'Summer 2027',
+        courses: [{ ...cloneCourse(internship, 1), delivery: 'web' }],
+      }],
+    });
+    expect(evaluation.alerts.some((alert) => alert.id.startsWith('cpt-distance-') && alert.level === 'warning')).toBe(true);
+    expect(evaluation.countableCredits).toBe(0);
+  });
+
+  it('warns for named preparation paths and stays quiet for CSCE 313 background', () => {
+    const expectQuietWithPrior = (id: string, prior: string) => {
+      const course = catalogCourseById(id);
+      if (!course) throw new Error(`missing ${id}`);
+      const priorCard = {
+        ...cloneCourse(course),
+        code: prior,
+        id: prior.toLowerCase().replace(/\s+/g, '-'),
+        title: 'Prior preparation',
+        breadth: undefined,
+        prerequisiteText: undefined,
+        prerequisitePaths: undefined,
+      };
+      const without = evaluatePlan({
+        completedBreadth: { theory: false, systems: false, software: false },
+        terms: [
+          { id: 'one', name: 'Fall 2026', courses: [] },
+          { id: 'two', name: 'Spring 2027', courses: [cloneCourse(course)] },
+        ],
+      });
+      const withPrior = evaluatePlan({
+        completedBreadth: { theory: false, systems: false, software: false },
+        terms: [
+          { id: 'one', name: 'Fall 2026', courses: [priorCard] },
+          { id: 'two', name: 'Spring 2027', courses: [cloneCourse(course)] },
+        ],
+      });
+      expect(without.alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(true);
+      expect(withPrior.alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(false);
+    };
+
+    expectQuietWithPrior('csce-606', 'CSCE 431');
+    expectQuietWithPrior('csce-670', 'CSCE 310');
+    expectQuietWithPrior('csce-670', 'CSCE 603');
+    expectQuietWithPrior('csce-605', 'CSCE 434');
+    expectQuietWithPrior('csce-627', 'CSCE 433');
+
+    const operatingSystems = catalogCourseById('csce-611');
+    if (!operatingSystems) throw new Error('missing CSCE 611');
+    expect(operatingSystems.prerequisiteText).toMatch(/CSCE 313/);
+    expect(operatingSystems.prerequisitePaths).toBeUndefined();
+    const background = evaluatePlan({
+      completedBreadth: { theory: false, systems: false, software: false },
+      terms: [{ id: 'one', name: 'Fall 2026', courses: [cloneCourse(operatingSystems)] }],
+    });
+    expect(background.alerts.some((alert) => alert.id.startsWith('prerequisite-'))).toBe(false);
   });
 });

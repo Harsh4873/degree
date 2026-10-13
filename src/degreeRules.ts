@@ -1,4 +1,5 @@
-import type { BreadthArea, PlanAlert, PlanEvaluation, Planner, RequirementCheck, RequirementStatus } from './types';
+import { breadthForCode } from './catalogOverrides';
+import type { BreadthArea, CourseKind, PlanAlert, PlanEvaluation, Planner, RequirementCheck, RequirementStatus } from './types';
 
 const excludedCodes = new Set([
   'CSCE 601',
@@ -36,13 +37,52 @@ export const isExcludedCode = (code: string) => excludedCodes.has(canonicalCode(
 const sum = (values: number[]) =>
   values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 
-/** Catalog maxima cap what counts. Hours still sitting on the card stay in the raw total. */
-const cappedCredits = (course: { credits: number; maxCredits?: number }) => {
+/**
+ * Catalog maxima cap what counts. Hours still sitting on the card stay in the raw total.
+ * A graded CSCE card with no maximum is a custom entry; lecture courses count at most 3.
+ */
+const cappedCredits = (course: { credits: number; maxCredits?: number; kind?: string }) => {
   const credits = Number.isFinite(course.credits) ? course.credits : 0;
-  if (typeof course.maxCredits === 'number' && Number.isFinite(course.maxCredits)) {
-    return Math.min(credits, Math.max(0, course.maxCredits));
+  const cap = typeof course.maxCredits === 'number' && Number.isFinite(course.maxCredits)
+    ? course.maxCredits
+    : course.kind === 'csce-graded'
+      ? 3
+      : undefined;
+  if (typeof cap === 'number') {
+    return Math.min(credits, Math.max(0, cap));
   }
   return credits;
+};
+
+/** Repeated graded or non-CSCE codes count once, using the larger copy. */
+const sumLargestCopy = (
+  courses: { course: { code: string; credits: number; maxCredits?: number; kind: CourseKind } }[],
+  kind: CourseKind,
+  creditOf: (course: { credits: number; maxCredits?: number; kind: CourseKind }) => number,
+) => {
+  const largest = new Map<string, number>();
+  let uncoded = 0;
+  courses.forEach(({ course }) => {
+    if (course.kind !== kind) return;
+    const credits = creditOf(course);
+    const code = canonicalCode(course.code);
+    // A cleared code is not a repeat of another cleared card.
+    if (!code) {
+      uncoded += credits;
+      return;
+    }
+    const previous = largest.get(code);
+    if (previous === undefined || credits > previous) largest.set(code, credits);
+  });
+  return sum([...largest.values()]) + uncoded;
+};
+
+/** Fall and spring stay long semesters when the name is edited but the term id is not. */
+const isLongSemester = (term: { id: string; name: string }) => {
+  const name = typeof term.name === 'string' ? term.name : '';
+  if (/\bsummer\b/i.test(name)) return false;
+  if (/\b(spring|fall)\b/i.test(name)) return true;
+  return /^(fall|spring)(?:-|$)/i.test(typeof term.id === 'string' ? term.id : '');
 };
 
 const atLeastStatus = (value: number, target: number): RequirementStatus =>
@@ -70,11 +110,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
   });
   const totalCredits = sum(allCourses.map(({ course }) => course.credits));
   const eligibleCourses = allCourses.filter(({ course }) => !excludedCodes.has(canonicalCode(course.code)));
-  const gradedCsceCredits = sum(
-    eligibleCourses
-      .filter(({ course }) => course.kind === 'csce-graded')
-      .map(({ course }) => cappedCredits(course)),
-  );
+  const gradedCsceCredits = sumLargestCopy(eligibleCourses, 'csce-graded', cappedCredits);
   const seminarCredits = sum(
     eligibleCourses.filter(({ course }) => course.kind === 'seminar').map(({ course }) => course.credits),
   );
@@ -84,8 +120,10 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
   const directedStudyCredits = sum(
     eligibleCourses.filter(({ course }) => course.kind === 'directed-study').map(({ course }) => course.credits),
   );
-  const nonCsceCredits = sum(
-    eligibleCourses.filter(({ course }) => course.kind === 'non-csce-grad').map(({ course }) => course.credits),
+  const nonCsceCredits = sumLargestCopy(
+    eligibleCourses,
+    'non-csce-grad',
+    (course) => (Number.isFinite(course.credits) ? course.credits : 0),
   );
   const undergradCsce = eligibleCourses.filter(({ course }) => course.kind === 'csce-400');
   const undergradCsceCredits = sum(undergradCsce.map(({ course }) => course.credits));
@@ -123,7 +161,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
       explanation: 'CSCE 681, 684, 685, and 691 do not count toward this 18-credit minimum.',
     },
     ...(['theory', 'systems', 'software'] as BreadthArea[]).map((area): RequirementCheck => {
-      const matching = eligibleCourses.filter(({ course }) => course.breadth === area).length;
+      const matching = eligibleCourses.filter(({ course }) => breadthForCode(course.code) === area).length;
       const isComplete = planner.completedBreadth[area] || matching > 0;
 
       return {
@@ -220,6 +258,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
       return;
     }
     const code = canonicalCode(course.code);
+    if (!code) return;
     duplicateCounts.set(code, (duplicateCounts.get(code) ?? 0) + 1);
   });
   duplicateCounts.forEach((count, code) => {
@@ -227,12 +266,21 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     alerts.push({
       id: `duplicate-${code.replace(/\s+/g, '-')}`,
       title: `${code} is on the board ${count} times`,
-      detail: 'Each copy counts toward the degree plan. Remove the extra card unless the advisor approved repeating it. Research, seminar, directed study, and internship cards can repeat without this note.',
+      detail: 'Only one copy of a repeated graded or non-CSCE course counts toward the degree plan. A repeated 400-level course still fails the one-course rule. Custom items still count each copy. Remove the extra card. Research, seminar, directed study, and internship cards can repeat without this note.',
       level: 'warning',
     });
   });
 
   allCourses.forEach(({ course, term, termIndex }) => {
+    if (course.kind === 'internship' && course.delivery === 'web') {
+      alerts.push({
+        id: `cpt-distance-${course.instanceId}`,
+        title: `${course.code} is marked as a distance CPT course`,
+        detail: 'A CPT course cannot itself be distance. Choose a face-to-face section, or confirm an exception with ISSS at 979-845-1824.',
+        level: 'warning',
+      });
+    }
+
     if (excludedCodes.has(canonicalCode(course.code))) {
       alerts.push({
         id: `excluded-${course.instanceId}`,
@@ -269,9 +317,8 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
   planner.terms.forEach((term) => {
     if (!term || !Array.isArray(term.courses)) return;
     const courses = term.courses.filter((course) => course && typeof course.code === 'string');
-    const webCredits = sum(
-      courses.filter((course) => course.delivery === 'web').map((course) => course.credits),
-    );
+    const webCourses = courses.filter((course) => course.delivery === 'web');
+    const webCredits = sum(webCourses.map((course) => course.credits));
     if (webCredits <= 0) return;
 
     const inPersonCredits = sum(
@@ -280,8 +327,12 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
     const unmarkedCredits = sum(
       courses.filter((course) => course.delivery !== 'web' && course.delivery !== 'in-person').map((course) => course.credits),
     );
-    const counted = inPersonCredits + Math.min(webCredits, 3);
-    const longSemester = /\b(spring|fall)\b/i.test(term.name) && !/\bsummer\b/i.test(term.name);
+    const countedWeb = webCourses.reduce((best, course) => {
+      const credits = Number.isFinite(course.credits) ? course.credits : 0;
+      return Math.max(best, Math.min(Math.max(0, credits), 3));
+    }, 0);
+    const counted = inPersonCredits + countedWeb;
+    const longSemester = isLongSemester(term);
     const unmarkedNote = unmarkedCredits > 0
       ? ` ${unmarkedCredits} credits on this term are not marked in person or distance, so they are left out of that count.`
       : '';
@@ -302,7 +353,7 @@ export function evaluatePlan(planner: Planner): PlanEvaluation {
         ? `${term.name} still meets the F-1 9-hour count`
         : `${term.name} has distance credits`,
       detail: longSemester
-        ? `This term marks ${webCredits} distance credits. Only 3 of those count toward the F-1 9-hour minimum, together with ${inPersonCredits} in-person credits (${counted} counted).${unmarkedNote} WEB, VIDEO, and HYBRD count as distance.`
+        ? `This term marks ${webCredits} distance credits. ISSS counts one distance course, up to 3 credits, so ${countedWeb} of those credits count, together with ${inPersonCredits} in-person credits (${counted} counted).${unmarkedNote} WEB, VIDEO, and HYBRD count as distance.`
         : `This term marks ${webCredits} distance credits. ISSS still counts only one distance course, up to 3 credits, when a full-time minimum applies. Summer full-time is a separate rule.${unmarkedNote}`,
       level: 'info',
     });

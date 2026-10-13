@@ -27,6 +27,11 @@ export const breadthOverrides: Record<string, BreadthArea> = {
   'CSCE 713': 'software',
 };
 
+/** Official breadth for a course code. A renamed card does not keep the old area. */
+export function breadthForCode(code: string): BreadthArea | undefined {
+  return breadthOverrides[code.trim().toUpperCase().replace(/\s+/g, ' ')];
+}
+
 /** CSCE courses that are not graded coursework toward the 18 hours. Everything else is `csce-graded`. */
 export const kindOverrides: Record<string, CourseKind> = {
   'CSCE 681': 'seminar',
@@ -77,6 +82,7 @@ export const handKeptCourses: CourseTemplate[] = [
     breadth: 'systems',
     description: 'Advanced compiler writing, data-flow analysis, and code optimization.',
     prerequisiteText: 'CSCE 434.',
+    prerequisitePaths: [['CSCE 434']],
     source: 'official',
   },
   {
@@ -90,6 +96,7 @@ export const handKeptCourses: CourseTemplate[] = [
     breadth: 'software',
     description: 'Advanced software-engineering concepts, environments, and methodologies.',
     prerequisiteText: 'CSCE 431 or approval of instructor.',
+    prerequisitePaths: [['CSCE 431']],
     onlineFall2026: true,
     source: 'official',
   },
@@ -170,6 +177,7 @@ export const handKeptCourses: CourseTemplate[] = [
     breadth: 'theory',
     description: 'Formal models of computation, unsolvability, and complexity.',
     prerequisiteText: 'CSCE 433.',
+    prerequisitePaths: [['CSCE 433']],
     source: 'official',
   },
   {
@@ -276,6 +284,7 @@ export const handKeptCourses: CourseTemplate[] = [
     breadth: 'software',
     description: 'Storage and access for very large document collections; indexing, compression, querying, and retrieval-system evaluation.',
     prerequisiteText: 'CSCE 310 or CSCE 603 or approval of instructor; graduate classification.',
+    prerequisitePaths: [['CSCE 310'], ['CSCE 603']],
     source: 'official',
   },
   {
